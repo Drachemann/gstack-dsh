@@ -363,13 +363,9 @@ export class JevClient {
 
         if (!response.ok) {
           const body = await response.text().catch(() => '');
-          // 4xx is a caller/config fault: retrying cannot help.
-          if (response.status >= 400 && response.status < 500) {
-            throw new JevError(
-              `Jev HTTP ${response.status}: ${body || response.statusText}`,
-              { status: response.status, body }
-            );
-          }
+          // One throw for both classes: the 4xx-is-not-retryable policy is
+          // applied by the caller via `isClientFault`, so a duplicate 4xx
+          // branch here would only restate this throw.
           throw new JevError(`Jev HTTP ${response.status}: ${body || response.statusText}`, {
             status: response.status,
             body,

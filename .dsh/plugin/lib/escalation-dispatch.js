@@ -25,7 +25,6 @@
 
 /** Chunk-collection ceiling. A second opinion is a short verdict, not an essay. */
 const MAX_MESSAGE_CHARS = 20000;
-const MAX_REASONING_CHARS = 8000;
 
 /** Bound the request: one question needs an answer, not a runaway continuation. */
 const MAX_TOKENS = 1600;
