@@ -5099,4 +5099,34 @@ describe('dsh host render', () => {
     const missing = [...referenced].filter((asset) => !linked.has(asset)).sort();
     expect(missing).toEqual([]);
   });
+
+  test('the DSH render uses a short-question brief the GUI can actually render', () => {
+    // Observed live: the Claude shape puts the entire brief (D-numbering, ELI10,
+    // stakes, a Pros/cons bullet block, Net) into the QUESTION text. The DSH Web
+    // GUI renders options separately, so the options were pushed out of view and
+    // the user could not select anything. The fix moves the argument to
+    // options[].description and keeps the question short.
+    const dsh = readDsh('review');
+    expect(dsh).toContain('ask_user_question Format (DeepSeek Harness)');
+    expect(dsh).toContain('options[].description');
+    expect(dsh).toContain('Put the literal suffix "(recommended)"');
+    // The Claude-only shapes must not survive into the dsh render.
+    expect(dsh).not.toContain('`Net:` closes question text');
+    expect(dsh).not.toContain('`Pros / cons:` in question text');
+    // And the dsh brief must still carry the safety-relevant rules, so this
+    // stayed a re-shape rather than a removal.
+    expect(dsh).toContain('One-way / destructive confirmations');
+    expect(dsh).toContain('NEVER');
+    expect(dsh).toContain('drop, merge, or defer one');
+    expect(dsh).toContain('SESSION_KIND: spawned');
+  });
+
+  test('the committed Claude render keeps the original brief shape', () => {
+    // Control: the host split must be inert for every other host.
+    const claude = fs.readFileSync(path.join(ROOT, 'review', 'SKILL.md'), 'utf-8');
+    expect(claude).toContain('## AskUserQuestion Format');
+    expect(claude).toContain('`Pros / cons:` in question text');
+    expect(claude).toContain('`Net:` closes question text');
+    expect(claude).not.toContain('ask_user_question Format (DeepSeek Harness)');
+  });
 });
