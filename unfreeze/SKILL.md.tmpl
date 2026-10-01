@@ -29,6 +29,9 @@ echo '{"skill":"unfreeze","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(bas
 
 ```bash
 bash "$HOME/.claude/skills/gstack/freeze/bin/freeze-state.sh" clear
+# Also clear the safety-mode marker /careful and /guard set, so a DeepSeek
+# Harness session stops gating the ambiguous band. No-op on Claude Code.
+rm -f ~/.gstack/careful.json
 ```
 
 This is explicit user-requested removal, not investigation cleanup. The shared writer serializes it with acquisition, replacement and owner-checked release. On `FREEZE_BUSY` or unexpected state, leave everything untouched and report recovery; never delete state or a possibly active mutation lock directly.

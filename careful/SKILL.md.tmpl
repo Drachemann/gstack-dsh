@@ -33,6 +33,12 @@ and can choose to proceed or cancel.
 ```bash
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"careful","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+# Record the mode for hosts whose tool gate reads it (DeepSeek Harness:
+# the gstack-dsh plugin's pre-execution risk gate). Claude Code enforces
+# /careful through the PreToolUse hook declared above and ignores this file.
+mkdir -p ~/.gstack
+printf '{"mode":"careful","since":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ~/.gstack/careful.json
+echo "Safety mode: careful (destructive and ambiguous calls gated)."
 ```
 
 ## What's protected
@@ -55,12 +61,21 @@ These patterns are allowed without warning:
 
 ## How it works
 
-The hook reads the command from the tool input JSON, checks it against the
+**Claude Code** enforces this with the `PreToolUse` hook declared in this file's
+frontmatter: it reads the command from the tool input JSON, checks it against the
 patterns above, and returns a `hookSpecificOutput` payload with
 `permissionDecision: "ask"` and a warning reason if a match is found (the
 decision must be nested under `hookSpecificOutput` — Claude Code ignores a
 top-level `permissionDecision`). You can always override a MEDIUM warning and
 proceed.
+
+**DeepSeek Harness** has no `PreToolUse` hook. The `gstack-dsh` plugin's
+pre-execution risk gate is the equivalent, and it runs Jev on every tool call in
+every mode; this skill's `~/.gstack/careful.json` marker is what decides whether
+an *ambiguous* verdict blocks. Without the marker an ambiguous call is recorded
+and allowed, so day-to-day automation is not interrupted by uncertainty — a
+confident danger is denied either way. dsh's own approval policy and sandbox
+remain authoritative underneath.
 
 ## HIGH tier (hard deny)
 
@@ -79,4 +94,7 @@ Add warn rules — one POSIX ERE per line, `#` comments OK — in
 after the built-in families, so config can only ADD rules, never suppress a
 baseline warning. Invalid regex lines are skipped.
 
-To deactivate, end the conversation or start a new one. Hooks are session-scoped.
+To deactivate, end the conversation or start a new one. On Claude Code the hooks
+are session-scoped; on DeepSeek Harness the `~/.gstack/careful.json` marker is
+cleared by `/unfreeze` and expires on its own after 8 hours, so a stale marker
+can never outlive the session that set it.

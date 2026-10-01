@@ -47,6 +47,11 @@ by the gstack setup script).
 ```bash
 mkdir -p ~/.gstack/analytics
 echo '{"skill":"guard","ts":"'$(date -u +%Y-%m-%dT%H:%M:%SZ)'","repo":"'$(basename "$(git rev-parse --show-toplevel 2>/dev/null)" 2>/dev/null || echo "unknown")'"}'  >> ~/.gstack/analytics/skill-usage.jsonl 2>/dev/null || true
+# DeepSeek Harness has no PreToolUse hook; its gstack-dsh risk gate reads this
+# marker instead (guard = careful + the edit boundary). Claude Code ignores it
+# and uses the hooks declared in this file's frontmatter.
+mkdir -p ~/.gstack
+printf '{"mode":"guard","since":"%s"}\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > ~/.gstack/careful.json
 ```
 
 ## Setup
