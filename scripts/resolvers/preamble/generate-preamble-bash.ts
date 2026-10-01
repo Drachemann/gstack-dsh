@@ -20,10 +20,20 @@ import { getHostConfig } from '../../../hosts/index';
  */
 export function generatePreambleBash(ctx: TemplateContext): string {
   const hostConfig = getHostConfig(ctx.host);
+  // A project-local install is only preferred once it is provably usable. The
+  // probe is the launcher this block is about to run, so a host whose render
+  // tree shares the install path (dsh: `.dsh/skills/gstack` is both the export
+  // target and the project-local root) can never let a half-populated
+  // directory shadow a healthy global install. Hosts that do not set a probe
+  // keep the historical unconditional preference byte-for-byte.
+  const localProbe = hostConfig.localSkillRootProbe;
+  const localGuard = localProbe
+    ? `[ -n "$_ROOT" ] && [ -x "$_ROOT/${ctx.paths.localSkillRoot}/${localProbe}" ]`
+    : `[ -n "$_ROOT" ] && [ -d "$_ROOT/${ctx.paths.localSkillRoot}" ]`;
   const runtimeRoot = hostConfig.usesEnvVars
     ? `_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 GSTACK_ROOT="$HOME/${hostConfig.globalRoot}"
-[ -n "$_ROOT" ] && [ -d "$_ROOT/${ctx.paths.localSkillRoot}" ] && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
+${localGuard} && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"

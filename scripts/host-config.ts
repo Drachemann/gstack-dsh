@@ -39,6 +39,21 @@ export interface HostConfig {
   hostSubdir: string;
   /** Whether preamble generates $GSTACK_ROOT env vars (true for non-Claude hosts). */
   usesEnvVars: boolean;
+  /**
+   * Path relative to `localSkillRoot` that must exist before the generated
+   * preamble prefers a project-local install over the global one.
+   *
+   * Some hosts keep their generated render tree under the *same* path their
+   * project-local install would occupy, so the directory exists as soon as
+   * skills are rendered even though no runtime assets were ever linked into
+   * it. Preferring that half-populated directory silently breaks every
+   * `$GSTACK_ROOT/bin/*` call in every skill. Setting a probe file (the
+   * launcher the preamble is about to run) makes the preference conditional on
+   * the directory actually being usable, and falls back to the global install
+   * otherwise. Unset keeps the historical unconditional preference, so hosts
+   * that opt in are the only ones whose rendered bytes change.
+   */
+  localSkillRootProbe?: string;
 
   // --- Frontmatter Transformation ---
   frontmatter: {
@@ -58,6 +73,22 @@ export interface HostConfig {
     renameFields?: Record<string, string>;
     /** Conditionally add fields based on template frontmatter values. */
     conditionalFields?: Array<{ if: Record<string, unknown>; add: Record<string, unknown> }>;
+    /**
+     * Which name to write into the generated `name:` frontmatter field.
+     *
+     * - `'template'` (default): the template's own bare name (`ship`). This is
+     *   the long-standing behaviour for every host, and the generated directory
+     *   still carries the host's external name (`gstack-ship`).
+     * - `'external'`: the host's external skill name from `externalSkillName()`
+     *   (`gstack-ship`), matching the output directory.
+     *
+     * Hosts whose skill *catalog* is keyed by the frontmatter name rather than
+     * the directory name must use `'external'`, or the generated skills collide
+     * with same-named skills from any other installed pack. The DeepSeek
+     * Harness is such a host: its skill registry validates and de-duplicates on
+     * the frontmatter `name`, and its `/name` gesture matches that same value.
+     */
+    nameField?: 'template' | 'external';
   };
 
   // --- Generation ---
