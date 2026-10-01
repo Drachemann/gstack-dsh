@@ -3,7 +3,10 @@
 ## gstack-dsh installability backlog (filed 2026-10-02, from four dogfood lanes)
 
 Four lanes (install / memory / engine / flow) ran from foreign `/tmp` projects against
-`feat/dsh-host-workflows`. Raw evidence: `/tmp/dogfood-{install,memory,engine,flow,lead}/FINDINGS.md`.
+`feat/dsh-host-workflows`. Their per-lane `FINDINGS.md` files were session-local scratch under `/tmp`
+and did not survive the session; the durable record is this backlog (each entry carries its repro, root
+cause, and owning files), the commit messages on this branch, and `docs/dsh-port/`. The lane worktrees
+under `/tmp/dogfood-*` are throwaway and are not evidence.
 Severity: **blocker** = cannot install/use gstack-dsh from another project; **friction** = works but
 misleads or costs a workaround; **polish** = cosmetic.
 

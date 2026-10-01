@@ -2,8 +2,8 @@
 
 Answer to "can I install this and use it on my other repos?" Verified by running four
 dogfood lanes from foreign `/tmp` git repos against `feat/dsh-host-workflows`
-(`f3efe84a` + this branch). Raw evidence:
-`/tmp/dogfood-{install,memory,engine,flow,lead}/FINDINGS.md`.
+(`f3efe84a` + this branch). The lanes' `FINDINGS.md` files were session-local scratch and did not
+survive; every finding below is recorded durably in `TODOS.md` and in this branch's commit messages.
 
 **Short answer: yes, with two caveats.** A dsh install is *user-scoped*, not
 project-scoped, and every skill is invoked as `/gstack-*`, not `/ship`.
