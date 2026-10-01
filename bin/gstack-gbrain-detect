@@ -27,6 +27,13 @@
  * gbrain_local_status. Key order may differ from the bash version's `jq -n`
  * output — downstream parsers must not depend on key order (none currently do).
  *
+ * gbrain_mcp_mode resolution order: Claude's own tiers first (`claude mcp get
+ * gbrain --json` -> `claude mcp list` -> `~/.claude.json`), then DSH's layered
+ * MCP config as the final tier (lib/dsh-mcp-layers.ts). DSH last is deliberate:
+ * an existing Claude host's answer is unchanged, and a live dsh registration —
+ * which has no `mcp add` and no `~/.claude.json` row — reports local-stdio or
+ * remote-http instead of "none".
+ *
  * Env:
  *   GSTACK_HOME      — override ~/.gstack for state lookups (used by tests).
  *   HOME             — effective user home (drives ~/.gbrain/config.json path).
@@ -44,6 +51,7 @@ import {
   readGbrainVersion,
 } from "../lib/gbrain-local-status";
 import { gbrainConfigDir, isTransactionModePooler } from "../lib/gbrain-exec";
+import { activeDshProfile, dshHomeFromEnv, resolveDshMcpGbrain } from "../lib/dsh-mcp-layers";
 
 const STATE_DIR = process.env.GSTACK_HOME || join(userHome(), ".gstack");
 const SCRIPT_DIR = __dirname;
@@ -226,6 +234,18 @@ function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
     }
     if (entry.command && /\bgbrain\b/.test(entry.command)) return "local-stdio";
   }
+  // Tier 4: DSH's layered MCP config. Deliberately LAST so every existing host
+  // is unchanged: Claude's own config still wins when it registers gbrain, and
+  // this tier only answers where the chain above would have said "none".
+  // Without it, a live dsh registration reads as "none" (dsh has no `mcp add`
+  // and no `~/.claude.json` row), which is the bug this tier fixes.
+  const dsh = resolveDshMcpGbrain({
+    projectRoot: process.cwd(),
+    dshHome: dshHomeFromEnv(process.env, userHome()),
+    profile: activeDshProfile(process.env, tryExec("ps", ["-eo", "args"], 2_000)),
+    remoteMcpUrl,
+  });
+  if (dsh) return dsh.mode;
   return "none";
 }
 
