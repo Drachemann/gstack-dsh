@@ -57,6 +57,11 @@ gstack ready (dsh).
   active. Day-to-day automation is no longer interrupted by uncertainty, and the explicit mode is
   there for work you cannot cheaply undo. The mode expires after 8 hours so it cannot outlive the
   session that set it.
+- **`/gstack-freeze` and `/gstack-guard` actually block edits on dsh.** Their boundary is a
+  Claude Code `PreToolUse` hook, so on dsh the skill wrote state nothing read and every edit was
+  allowed. The dsh gate now checks the same state file before any judgment call: an edit whose
+  `file_path` resolves outside the frozen directory is denied, symlinks are resolved through
+  their final component, and a boundary that cannot be evaluated fails closed.
 - **dsh installs no longer touch Claude-only state** — the Claude render directory and the
   plan-tune hooks in `~/.claude/settings.json` are left alone by a `--host dsh` run.
 

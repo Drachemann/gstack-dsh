@@ -67,26 +67,41 @@ again. To remove it, run `/unfreeze`."
 
 ## How it works
 
-The hook reads `file_path` from the Edit/Write tool input JSON (shared
-real-JSON extractor with /careful — one copy, sourced by both hooks), then
-checks whether the path starts with the freeze directory. If not, it returns a
-`hookSpecificOutput` payload with `permissionDecision: "deny"` to block the
-operation (nested under `hookSpecificOutput` — Claude Code ignores a top-level
-`permissionDecision`).
+**Claude Code** enforces this with the `PreToolUse` hooks declared in this
+file's frontmatter. The hook reads `file_path` from the Edit/Write tool input
+JSON (shared real-JSON extractor with /careful — one copy, sourced by both
+hooks), then checks whether the path starts with the freeze directory. If not,
+it returns a `hookSpecificOutput` payload with `permissionDecision: "deny"` to
+block the operation (nested under `hookSpecificOutput` — Claude Code ignores a
+top-level `permissionDecision`).
 
-Polarity is fail-closed: a tool payload the hook cannot parse is DENIED, not
-allowed — a boundary that fails open is not a boundary. A payload that parses
-but has no `file_path` (a non-file tool) is allowed. Symlinks are resolved
-through their FINAL component, so an in-boundary symlink pointing outside the
-boundary is checked against its target.
+**DeepSeek Harness** has no `PreToolUse` hook, so the `gstack-dsh` plugin's
+pre-execution gate enforces the same boundary from the same state file — reading
+the exact format written by `freeze-state.sh`, resolving through the final
+symlink component, and denying `write`/`edit` outside the path. It is checked
+before any judgment call, so a hard boundary never depends on a model's opinion.
+Ambiguity is refused rather than guessed: if the saved boundary is not an
+absolute path, every edit is denied until you re-run `/freeze` with an absolute
+directory.
 
-The freeze boundary persists until explicitly removed via the state file. The hook
-script reads it on every Edit/Write invocation. Boundaries containing spaces
-are supported.
+Polarity is fail-closed on both hosts: a boundary that cannot be evaluated is
+DENIED, not allowed — a boundary that fails open is not a boundary. A tool that
+is not file-targeted (no `file_path`) is allowed, which is what keeps `bash`,
+`read`, `glob` and `grep` out of scope.
+
+The freeze boundary persists until explicitly removed via the state file. The
+hook script reads it on every Edit/Write invocation; the plugin reads it on every
+gated tool call. Boundaries containing spaces are supported.
 
 ## Notes
 
 - The trailing `/` on the freeze directory prevents `/src` from matching `/src-old`
-- Freeze applies to Edit and Write tools only — Read, Bash, Glob, Grep are unaffected
-- This prevents accidental edits, not a security boundary — Bash commands like `sed` can still modify files outside the boundary
+- Freeze applies to file-editing tools only (`edit`/`write` on dsh, Edit/Write on
+  Claude Code) — `read`, `bash`, `glob` and `grep` are unaffected
+- This prevents accidental edits, not a security boundary — a shell command like
+  `sed` can still modify files outside the boundary
+- **Known gap on DeepSeek Harness:** the plugin checks the `file_path` argument,
+  so a relative path is resolved against the process working directory when the
+  session's own cwd cannot be determined. Use absolute paths, or run `/freeze`
+  with the repository root, if you need the boundary to be exact.
 - To deactivate, run `/unfreeze`; ending or killing a conversation does not remove persisted state

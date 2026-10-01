@@ -208,3 +208,49 @@ lists were missing the same entries.
 `.git` is deliberately still absent. `gstack-upgrade` probes for it, but its
 `elif` chain is written for a non-git runtime root, and linking the source
 checkout's `.git` in would let an upgrade mutate the plugin's own git state.
+
+---
+
+## 8. `/gstack-freeze` and `/gstack-guard` are now enforced, not just documented
+
+Section 6 recorded that `/gstack-careful` was inert on dsh. `/freeze` had the
+same shape and a worse symptom: `/gstack-unfreeze` exited 127 (missing
+`freeze/bin/` at the runtime root — fixed in §7), and even once the writer ran,
+nothing read the boundary, because enforcement on Claude Code is a `PreToolUse`
+hook.
+
+`.dsh/plugin/lib/freeze.js` is the enforcement arm, checked on the plugin's
+pre-execution gate **before** any judgment call — a hard boundary the user set
+must not depend on a model's opinion, nor spend a decision to reach a
+deterministic answer. It is a mirror of `check-freeze.sh`, not a
+reinterpretation, because the two must agree:
+
+| Concern | Mirrored behaviour |
+|---|---|
+| State root | `GSTACK_HOME` → `CLAUDE_PLUGIN_DATA` (gstack-scoped) → `$HOME/.gstack` → `.gstack` |
+| State file | `<root>/freeze-dir.txt`; line 1 boundary, line 2 `gstack-freeze-v1:<owner>`; legacy files trimmed, v1 files taken verbatim |
+| Symlinks | the **final** component is followed, bounded at 40 hops — the hook's fix for an in-boundary symlink escaping to an out-of-boundary target |
+| Containment | target equals the boundary or starts with `<boundary>/`, so `/src` never matches `/src-old` |
+| Polarity | a boundary that cannot be evaluated DENIES; "no state file" means unconfigured and ALLOWS; a non-file tool (no `file_path`) ALLOWS |
+
+Verified end to end through the production path — the real `freeze-state.sh`
+writer, the plugin's default state-root resolution, then the gate:
+
+```
+read boundary      : {"active":true,"deny":false,"dir":"/tmp/tmp.wLg1XproMA","reason":"active"}
+edit INSIDE  boundary : ALLOWED
+edit OUTSIDE boundary : DENIED
+edit outside (rel cwd): DENIED
+bash (out of scope)   : ALLOWED (by design, as in the hook)
+```
+
+72 plugin tests pass, including the symlink escape, the prefix-collision case,
+and the relative-boundary refusal.
+
+**Known limitations, stated rather than papered over:**
+
+- `bash` is out of scope, exactly as in the Claude hook. This prevents accidental
+  edits, not a determined one — `sed` still writes wherever it likes.
+- A relative `file_path` is resolved against the process working directory when
+  the session cwd cannot be determined, because dsh's file tools expose no cwd
+  and the plugin's `exec` carries none. Absolute paths are exact; the skill says so.

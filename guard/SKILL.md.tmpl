@@ -80,3 +80,10 @@ Tell the user:
 
 See `/careful` for the full list of destructive command patterns and safe exceptions.
 See `/freeze` for how edit boundary enforcement works.
+
+**On DeepSeek Harness** both halves are enforced by the `gstack-dsh` plugin's
+pre-execution gate rather than by hooks: the `~/.gstack/careful.json` marker
+decides whether an ambiguous call from Jev blocks, and the same freeze state file
+`/freeze` writes is checked before any judgment call so an edit outside the
+boundary is denied deterministically. The marker is cleared and the boundary
+released by `/unfreeze`.

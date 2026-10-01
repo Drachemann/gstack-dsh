@@ -1,3 +1,21 @@
+# gstack-dsh
+
+> **⚠️ EXPERIMENTAL — AI-CODED — WORK IN PROGRESS.**
+> This is an unofficial, **AI-coded** fork of [gstack](https://github.com/garrytan/gstack) that
+> ports its skill suite to the **DeepSeek Harness (dsh)**. It is under active development and
+> changes without notice. It has **not** been security-audited, its dependency and licence
+> posture has not been reviewed, and it is not ready for production use or for other people's
+> machines. Interfaces, on-disk paths, and the plugin API may change between commits. Use at your
+> own risk; read the code before you run it.
+>
+> Newest work lives on feature branches, not `main` — `main` tracks upstream gstack so it can be
+> merged cleanly. See [`docs/dsh-port/`](docs/dsh-port/) for what was changed, what is verified,
+> and what is not.
+>
+> The README below is upstream gstack's, describing the project this is forked from.
+
+---
+
 # gstack
 
 > "I don't think I've typed like a line of code probably since December, basically, which is an extremely large change." — [Andrej Karpathy](https://fortune.com/2026/03/21/andrej-karpathy-openai-cofounder-ai-agents-coding-state-of-psychosis-openclaw/), No Priors podcast, March 2026
