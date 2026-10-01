@@ -61,8 +61,16 @@ Extract 2-4 keywords from the user's request. Search the brain:
 \`gbrain search "<keywords>"\`. Read the top 3 results with
 \`gbrain get_page "<slug>"\`. Use that context to inform your analysis.
 
-If \`gbrain search\` returns no results or any non-zero exit, proceed
-without brain context. Full search/read protocol + examples:
+**A non-empty result set is not recall.** When the brain holds nothing for this
+project, search still returns unrelated pages, flagged
+\`"evidence":"weak_semantic"\` (cosine ~0.44), and says nothing about it. Treat
+that — or hits naming none of this project's files, symbols, or decisions — as
+a degraded, empty search: do not present those pages as prior context, and say
+plainly that the brain holds nothing relevant for this project yet. Zero
+results or any non-zero exit mean the same thing; in all these cases continue
+without brain context.
+
+Full search/read protocol + examples:
 see \`docs/gbrain-write-surfaces.md\` §Context Load.`;
 
   if (ctx.skillName === 'investigate') {

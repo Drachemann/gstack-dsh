@@ -43,6 +43,13 @@ worktree of a repo shares one checkpoints directory (same origin-derived slug),
 so without it `/context-restore` in one worktree could silently load a sibling
 worktree's newer checkpoint.
 
+**The checkpoints directory is keyed by origin, not by clone path** —
+`~/.gstack/projects/<owner-repo>/checkpoints`, derived from the `origin` remote.
+Two separate *clones* of the repo therefore share it too, not just worktrees. If
+the loaded Summary, Notes, or `files_modified` paths don't exist in this clone,
+what you loaded is the sibling clone's state: say so and confirm with the user
+before resuming it as your own.
+
 **Do NOT hard-filter the candidate set to the current branch** — other-branch
 checkpoints stay in the set as a fallback. They are just ordered *after* the
 current branch's own, so a current-branch save is never shadowed by a newer
