@@ -49,9 +49,12 @@
  * @module gstack-dsh/jev
  */
 
-/** OpenCode's System One endpoint. The paid and free tiers share it. */
-export const DEFAULT_JEV_BASE_URL = 'https://opencode.ai/zen/v1/systemone';
+import { recordEgressOutcome, writeEgressReceipt } from './egress-receipt.js';
+
 /**
+ * OpenCode's System One endpoint. The paid and free tiers share it.
+ */
+export const DEFAULT_JEV_BASE_URL = 'https://opencode.ai/zen/v1/systemone';/**
  * Default model: the PAID tier, so a gate is not left undecided by free-tier
  * throttling. Set `config.model` to `jev-1.13-free` to run on credit-free quota.
  */
@@ -344,6 +347,23 @@ export class JevClient {
       );
     }
 
+    // Interpolate once so the receipt hash and the send cover the SAME bytes.
+    // `body` is the exact string handed to fetch below, and the receipt bridge
+    // hashes that exact file; re-serializing would reopen a scan-vs-send gap.
+    const body = JSON.stringify(payload);
+
+    // Egress receipt, fail-closed, BEFORE the request. The plugin's one
+    // off-machine sink is this endpoint, and it carries the gated call's
+    // verbatim arguments. If the receipt cannot be written, this throws and no
+    // byte leaves the machine — see lib/egress-receipt.js for the polarity
+    // rationale and why the ledger format is not reimplemented here.
+    const receipt = writeEgressReceipt({
+      sink: 'dsh-jev-triage',
+      host: new URL(this.endpoint).host,
+      payloadClass: 'tool-call-shape',
+      body,
+    });
+
     let lastError;
     for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
       const controller = new AbortController();
@@ -356,10 +376,13 @@ export class JevClient {
             accept: 'application/json',
             authorization: `Bearer ${this.apiKey}`,
           },
-          body: JSON.stringify(payload),
+          body,
           signal: controller.signal,
         });
         clearTimeout(timer);
+        // Bookkeeping only: the pre-send receipt is the invariant, and this must
+        // never fail the call.
+        recordEgressOutcome(receipt.id, response.status);
 
         if (!response.ok) {
           const body = await response.text().catch(() => '');
