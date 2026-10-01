@@ -515,3 +515,60 @@ the server up without a full restart — but the *tool list* is resolved per
 session, so tell them: "Restart this dsh session to see the \`gbrain\` MCP tools
 in the model's tool list."`;
 }
+
+/**
+ * Step 9 of /setup-gbrain — the put → search round trip.
+ *
+ * Every host except dsh keeps the historical CLI smoke test, byte-for-byte.
+ * dsh cannot use it: dsh mounts `gbrain serve` **live** for the whole session
+ * and PGLite is a single-writer datastore, so by Step 9 every read/write CLI
+ * verb is locked out —
+ *
+ *   GBrain's local database is already open through `gbrain serve` (MCP, PID …)
+ *
+ * Only `sources add` and `sync` delegate to the live serve over IPC; `put`,
+ * `search` and `sources list` do not (verified on gbrain 0.60.25.0). The dsh
+ * branch therefore runs the round trip through the MCP tools the session
+ * already has, and checks `embedded_count` as well — the CLI test could pass on
+ * a keyless brain, which is the failure mode /setup-gbrain exists to catch.
+ */
+export function generateGBrainStep9Smoke(ctx: TemplateContext): string {
+  if (ctx.host !== 'dsh') {
+    return `\`\`\`bash
+SLUG="setup-gbrain-smoke-test-$(date +%s)"
+echo "Set up on $(date). Smoke test for /setup-gbrain." | gbrain put "$SLUG"
+gbrain search "smoke test" | grep -i "$SLUG"
+\`\`\`
+
+Confirms the round trip. On failure, surface \`gbrain doctor --json\` output
+and STOP with a NEEDS_CONTEXT escalation.`;
+  }
+
+  return `Run the round trip through the **MCP tools**, not the CLI. dsh mounts
+\`gbrain serve\` live for the whole session and PGLite is a single-writer
+datastore, so by this step every read/write CLI verb is locked out:
+
+    GBrain's local database is already open through \`gbrain serve\` (MCP, PID …)
+
+That is expected, not a broken install: only \`gbrain sources add\` and
+\`gbrain sync\` delegate to the live serve over IPC. So:
+
+1. \`mcp__gbrain__put_page\` — slug \`inbox/setup-gbrain-smoke-test-<epoch>\`,
+   \`type: note\`, one line of body.
+2. \`mcp__gbrain__search\` (or \`mcp__gbrain__query\`) for \`smoke test\` and
+   confirm the slug comes back.
+3. \`mcp__gbrain__get_stats\` — \`page_count\` incremented, and \`embedded_count\`
+   rose with it.
+
+Step 3 is the signal the CLI test never checked: a page that embeds proves the
+embedding provider is reachable and the vector width matches the engine. If
+\`page_count\` rises while \`embedded_count\` stays flat, the brain is running
+**keyless** — vector search is silently keyword-only. Fix the provider first
+(Step 1.7), and do not report a green smoke test. Do NOT point the new page at
+a source whose persistence is a git worktree you intend to reset later.
+
+On failure, STOP with a NEEDS_CONTEXT escalation and surface \`gbrain doctor
+--json\` from a shell where no live serve holds the datastore. Never stop the
+live serve just to run the CLI verbs — that tears down this session's brain
+tools.`;
+}

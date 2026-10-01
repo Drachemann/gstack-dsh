@@ -411,14 +411,7 @@ Do NOT print the actual token in the curl command — leave the placeholder
 
 ### Paths 1, 2a, 2b, 3 (Local stdio)
 
-```bash
-SLUG="setup-gbrain-smoke-test-$(date +%s)"
-echo "Set up on $(date). Smoke test for /setup-gbrain." | gbrain put "$SLUG"
-gbrain search "smoke test" | grep -i "$SLUG"
-```
-
-Confirms the round trip. On failure, surface `gbrain doctor --json` output
-and STOP with a NEEDS_CONTEXT escalation.
+{{GBRAIN_STEP9_SMOKE}}
 
 ---
 
