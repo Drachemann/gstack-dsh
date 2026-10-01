@@ -58,7 +58,20 @@ export function fixture(layout: string) {
     : layout === 'ordinary' ? join(project, 'custom-checkout') : join(project, layout, 'skills/gstack');
   const commands = join(dir, 'commands');
   for (const d of [home, other, commands, source]) fixtureMkdirSync(d, { recursive: true });
-  for (const rel of [...files.stdout.split('\0').filter(Boolean), 'scripts/external-skill-names.ts', 'scripts/preflight-codex-overlap.ts']) {
+  for (const rel of [
+    ...files.stdout.split('\0').filter(Boolean),
+    // Untracked files the checkout needs but `git ls-files` cannot see. Keep
+    // this list to files that are genuinely required to run `setup` from the
+    // fixture copy; anything here is a symptom that it belongs in the commit.
+    'scripts/external-skill-names.ts',
+    'scripts/preflight-codex-overlap.ts',
+    // hosts/index.ts imports ./dsh, so a fixture without this file dies with
+    // "Cannot find module './dsh'" before setup can run a single assertion.
+    'hosts/dsh.ts',
+    // dsh's defaultModel is 'deepseek'; the overlay is read at render time and
+    // is untracked for the same reason.
+    'model-overlays/deepseek.md',
+  ]) {
     if (/^(?:test|docs|browse\/test|\.github)\//.test(rel)) continue;
     const dest = join(source, rel);
     fixtureMkdirSync(dirname(dest), { recursive: true });

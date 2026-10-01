@@ -23,7 +23,11 @@ import {
   slate,
   cursor,
   openclaw,
+  hermes,
+  gbrain,
+  dsh,
 } from '../hosts/index';
+import { resolveModel } from '../scripts/models';
 import { HOST_PATHS } from '../scripts/resolvers/types';
 import { RESOLVERS } from '../scripts/resolvers';
 
@@ -33,8 +37,8 @@ const RESOLVER_NAMES = new Set(Object.keys(RESOLVERS));
 // ─── hosts/index.ts ─────────────────────────────────────────
 
 describe('hosts/index.ts', () => {
-  test('ALL_HOST_CONFIGS has 10 hosts', () => {
-    expect(ALL_HOST_CONFIGS.length).toBe(10);
+  test('ALL_HOST_CONFIGS has 11 hosts', () => {
+    expect(ALL_HOST_CONFIGS.length).toBe(11);
   });
 
   test('ALL_HOST_NAMES matches config names', () => {
@@ -56,6 +60,9 @@ describe('hosts/index.ts', () => {
     expect(slate.name).toBe('slate');
     expect(cursor.name).toBe('cursor');
     expect(openclaw.name).toBe('openclaw');
+    expect(hermes.name).toBe('hermes');
+    expect(gbrain.name).toBe('gbrain');
+    expect(dsh.name).toBe('dsh');
   });
 
   test('getHostConfig returns correct config', () => {
@@ -404,6 +411,59 @@ describe('host-config-export.ts CLI', () => {
     expect(lines).toContain('plan-devex-review/dx-hall-of-fame.md');
   });
 
+  test('dsh symlinks returns the runtime assets every rendered skill reaches through $GSTACK_ROOT', () => {
+    const { stdout, exitCode } = run('symlinks', 'dsh');
+    expect(exitCode).toBe(0);
+    const lines = stdout.split('\n');
+    // The set is the observed `$GSTACK_ROOT/<path>` corpus across the rendered
+    // dsh skills. dsh discovers skills one level deep, so linking whole
+    // directories here is safe (unlike codex, which scans recursively).
+    for (const asset of [
+      'bin', 'lib', 'browse', 'design', 'docs', 'scripts', 'review',
+      'ship', 'plan-eng-review', 'plan-design-review', 'plan-devex-review',
+      'design-html', 'office-hours', 'gstack-upgrade', 'supabase', 'ETHOS.md',
+    ]) {
+      expect(lines).toContain(asset);
+    }
+    // The launch probe the preamble tests before preferring a project-local
+    // install. It must be a real file in the repo, and its first segment must
+    // be one of the linked assets — otherwise the guard can never be true and
+    // the project-local install is dead weight.
+    expect(dsh.localSkillRootProbe).toBe('bin/gstack-skill-start');
+    expect(fs.existsSync(path.join(ROOT, dsh.localSkillRootProbe!))).toBe(true);
+    expect(lines).toContain(dsh.localSkillRootProbe!.split('/')[0]);
+  });
+
+  test('dsh suppresses only the Codex-invocation resolvers', () => {
+    // REVIEW_ARMY / ADVERSARIAL_STEP / DESIGN_OUTSIDE_VOICES all fan out to
+    // in-host subagents, which dsh has natively; suppressing them dropped
+    // capability that dsh can actually run. GBRAIN stays un-suppressed so a
+    // completed /setup-gbrain produces brain-aware skills.
+    expect(dsh.suppressedResolvers).toEqual(['CODEX_SECOND_OPINION', 'CODEX_PLAN_REVIEW']);
+  });
+
+  test('setup builds exactly the runtime assets the dsh config declares', () => {
+    // Two copies exist by necessity (a TypeScript config and a shell
+    // installer). Nothing else compares them, so drift on one side would
+    // silently leave a referenced asset unlinked at install time.
+    const setupSource = fs.readFileSync(path.join(ROOT, 'setup'), 'utf-8');
+    const fnStart = setupSource.indexOf('create_dsh_runtime_root()');
+    const loopStart = setupSource.indexOf('for entry in', fnStart);
+    // Terminate on the loop's `; do`, not the first substring "do" — "docs" is
+    // one of the entries and a naive indexOf would truncate the list there.
+    const loopEnd = setupSource.indexOf('; do', loopStart);
+    const shellAssets = setupSource
+      .slice(loopStart + 'for entry in'.length, loopEnd)
+      .replace(/\\\n/g, ' ')
+      .split(/\s+/)
+      .filter(Boolean);
+    const declared = (run('symlinks', 'dsh').stdout.split('\n'))
+      // ETHOS.md is linked separately by the helper (it is a file, not a dir),
+      // so it is asserted by the symlink test above rather than by this parity.
+      .filter((a) => a && a !== 'ETHOS.md');
+    expect(shellAssets.sort()).toEqual(declared.sort());
+  });
+
   test('symlinks with missing host exits 1', () => {
     const { exitCode } = run('symlinks');
     expect(exitCode).toBe(1);
@@ -500,10 +560,25 @@ describe('golden-file regression', () => {
 // ─── Individual host config correctness ─────────────────────
 
 describe('host config correctness', () => {
-  test('Codex host renders with generic GPT overlay while existing hosts retain Claude overlay', () => {
+  test('Codex host renders with the generic GPT overlay, dsh with the DeepSeek overlay, and the remaining hosts retain the Claude overlay', () => {
     expect(codex.defaultModel).toBe('gpt');
-    for (const host of ALL_HOST_CONFIGS.filter(h => h.name !== 'codex')) {
-      expect(host.defaultModel).toBe('claude');
+    // dsh is the second host with a non-Claude overlay: the DeepSeek family is a
+    // registered model family (scripts/models.ts) with its own
+    // model-overlays/deepseek.md, so `deepseek` is correct and not an outlier.
+    // Listed explicitly rather than filtered away, so a third non-Claude host
+    // with a typo'd defaultModel still fails here.
+    const NON_CLAUDE_OVERLAY_HOSTS: Record<string, string> = { codex: 'gpt', dsh: 'deepseek' };
+    for (const host of ALL_HOST_CONFIGS) {
+      expect(resolveModel(host.defaultModel)).not.toBeNull();
+      if (host.name in NON_CLAUDE_OVERLAY_HOSTS) {
+        expect(host.defaultModel).toBe(NON_CLAUDE_OVERLAY_HOSTS[host.name]!);
+      } else {
+        expect(host.defaultModel).toBe('claude');
+      }
+      // readOverlay() degrades to an empty overlay when the file is missing
+      // (scripts/resolvers/model-overlay.ts), so a host could silently render
+      // with no behavioral patch at all. Pin that the overlay actually exists.
+      expect(fs.existsSync(path.join(ROOT, 'model-overlays', `${host.defaultModel}.md`))).toBe(true);
     }
   });
 

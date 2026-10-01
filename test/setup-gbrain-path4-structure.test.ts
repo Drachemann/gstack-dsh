@@ -53,6 +53,16 @@ const union = [skeleton]
   )
   .join('\n');
 
+// Step 5a's host-rendered MCP registration. The skeleton delegates to
+// {{GBRAIN_MCP_REGISTER}} because the mechanism is host-specific (Claude Code
+// has `claude mcp add`; dsh writes its MCP config layer), so the per-host pins
+// below target the resolver source that owns both branches rather than the
+// skeleton.
+const gbrainResolver = fs.readFileSync(
+  path.join(ROOT, 'scripts', 'resolvers', 'gbrain.ts'),
+  'utf-8',
+);
+
 describe('setup-gbrain carve — dispatch stays in the skeleton', () => {
   test('the path-dispatch step (Step 2 picker) stays always-loaded', () => {
     expect(skeleton).toContain('## Step 2: Pick a path (AskUserQuestion)');
@@ -105,17 +115,46 @@ describe('setup-gbrain Path 4 (Remote MCP) — structural contract', () => {
     expect(brainInit).toMatch(/4d.*[Ss]kip Steps? 3, 4.*5.*7\.5/s);
   });
 
-  test('Step 5a has a Path 4 branch with claude mcp add --transport http (skeleton)', () => {
-    expect(skeleton).toMatch(/Path 4 \(Remote MCP/);
-    expect(skeleton).toMatch(/claude mcp add --scope user --transport http gbrain/);
-    expect(skeleton).toContain('Authorization: Bearer $GBRAIN_MCP_TOKEN');
+  test('Step 5a delegates MCP registration to the host-rendered resolver', () => {
+    // The skeleton dispatches; the resolver owns the heading AND both host
+    // bodies, so exactly one Step 5a heading reaches any render.
+    expect(skeleton).toContain('{{GBRAIN_MCP_REGISTER}}');
+    expect(skeleton).not.toMatch(/^## Step 5a:/m);
+    expect(gbrainResolver).toMatch(/## Step 5a: Register gbrain as .*MCP \(D18\)/);
+    // The resolver must own a real Claude Code branch, unchanged in substance.
+    expect(gbrainResolver).toMatch(/Path 4 \(Remote MCP/);
+    expect(gbrainResolver).toMatch(/claude mcp add --scope user --transport http gbrain/);
+    expect(gbrainResolver).toContain('Authorization: Bearer $GBRAIN_MCP_TOKEN');
     // Token must be unset after registration so it doesn't linger in env.
-    expect(skeleton).toMatch(/unset GBRAIN_MCP_TOKEN/);
+    expect(gbrainResolver).toMatch(/unset GBRAIN_MCP_TOKEN/);
   });
 
-  test('Step 5a removes any prior gbrain registration before adding the new one', () => {
-    // Otherwise local-stdio + remote-http coexist, which breaks routing.
-    expect(skeleton).toMatch(/claude mcp remove gbrain/);
+  test('Step 5a gives dsh a real branch instead of the Claude-only one', () => {
+    // dsh has no `mcp add` verb, and its `dsh-mcp` CLI cannot run outside the
+    // DSH install tree, so registration is a validated write to the user-scope
+    // JSON layer. All three facts must stay in the rendered instructions.
+    expect(gbrainResolver).toContain('DSH_MCP_JSON');
+    expect(gbrainResolver).toMatch(/\$\{?DSH_HOME/);
+    expect(gbrainResolver).toMatch(/mcp\.json/);
+    // The bearer stays a literal placeholder expanded at mount time.
+    expect(gbrainResolver).toContain('${GBRAIN_MCP_TOKEN}');
+    // A shadowed entry is dropped silently, so verification must check for
+    // shadowing rather than trusting the write.
+    expect(gbrainResolver).toMatch(/SHADOWS the user-scope entry/);
+    // And the unusable CLI route must be called out, not recommended.
+    expect(gbrainResolver).toMatch(/Do NOT shell out to/);
+    expect(gbrainResolver).toContain('dsh-mcp');
+    // The failure that makes the CLI unusable must be named, so a future
+    // reader does not "fix" the warning by reinstating the shell-out.
+    expect(gbrainResolver).toContain('ERR_MODULE_NOT_FOUND');
+  });
+
+  test('Step 5a replaces, never appends, a prior gbrain registration', () => {
+    // Claude Code needs an explicit remove; dsh's writer assigns the key
+    // unconditionally, which is the same idempotency by construction. Either
+    // way local-stdio + remote-http must not coexist, which breaks routing.
+    expect(gbrainResolver).toMatch(/claude mcp remove gbrain/);
+    expect(gbrainResolver).toMatch(/servers\.gbrain = \{/);
   });
 
   test('Step 7 calls gstack-artifacts-init with --url-form-supported flag (skeleton)', () => {
@@ -174,16 +213,26 @@ describe('setup-gbrain Path 4 — token security regressions', () => {
 
   test('Path 4 always uses env-var $GBRAIN_MCP_TOKEN, never inline strings', () => {
     // Find every reference to the bearer header in Path 4 (across the
-    // skeleton AND sections) and verify it's either an env-var expansion
-    // or an explicit placeholder. Allow:
+    // skeleton AND sections AND the host-rendered Step 5a resolver, which now
+    // owns the registration bodies) and verify it's either an env-var
+    // expansion or an explicit placeholder. Allow:
     //   - $GBRAIN_MCP_TOKEN  (env-var expansion)
+    //   - \${GBRAIN_MCP_TOKEN}  (the same expansion inside a JS template, which
+    //     is how the dsh branch emits it so the shell leaves it literal for
+    //     dsh to expand at mount time)
     //   - <bearer>, <YOUR_TOKEN>, <TOKEN>  (placeholder)
     //   - "..."  (rest-of-doc-text continuation; a doc note showing how
     //     `claude mcp add --header` shapes its argv).
-    const path4Section = union.match(/### Path 4 \(Remote MCP[\s\S]*?(?=###|## )/g)?.join('') || '';
+    //
+    // The resolver must be in scope: Step 5a moved out of the skeleton, so
+    // scanning `union` alone would leave this regression guard vacuous for
+    // exactly the content it protects.
+    const scanned = `${union}\n${gbrainResolver}`;
+    const path4Section = scanned.match(/### Path 4 \(Remote MCP[\s\S]*?(?=###|## )/g)?.join('') || '';
+    expect(path4Section).toContain('Bearer');
     const bearerLines = path4Section.match(/Bearer\s+\S+/g) || [];
     for (const line of bearerLines) {
-      expect(line).toMatch(/Bearer (\$GBRAIN_MCP_TOKEN|<bearer>|<YOUR_TOKEN>|<TOKEN>|\.\.\."?)/);
+      expect(line).toMatch(/Bearer (\\?\$\{?GBRAIN_MCP_TOKEN\}?|<bearer>|<YOUR_TOKEN>|<TOKEN>|\.\.\."?)/);
     }
   });
 });

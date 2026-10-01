@@ -335,7 +335,10 @@ describe('plan report persistence precedes completion logging', () => {
         const content = readFileSync(join(outputRoot, carrier.relativePath), 'utf8');
         if (carrier.relativePath.includes('plan-eng-review/')) {
           const dispatch = compactProse(content.slice(content.indexOf('**Pending-record checkpoint.**'), content.indexOf('## Scope Challenge')));
-          expect(compactProse(dispatch)).toContain('AskUserQuestion({ questions: [currentDecision] })');
+          // Same call, per-host spelling: dsh's toolRewrites map renames
+          // AskUserQuestion to its own snake_case tool, so pin the argument
+          // shape while accepting whichever name the host actually renders.
+          expect(compactProse(dispatch)).toMatch(/AskUserQuestion\(\{ questions: \[currentDecision\] \}\)|ask_user_question\(\{ questions: \[currentDecision\] \}\)/);
           expect(dispatch.indexOf("**STOP until the actual answer arrives.**")).toBeLessThan(dispatch.indexOf('### Record the answer'));
           expect(dispatch.indexOf('### Record the answer')).toBeLessThan(dispatch.indexOf('For the next choice'));
         }

@@ -11,6 +11,11 @@ test('every host exposes the DX per-call rule before the pre-review audit and St
     const generated = await runGeneration({ host: 'all', outputRoot });
     expect(generated.exitCode).toBe(0);
     const skills = generated.artifacts.filter(artifact => artifact.kind === 'skill'
+      // Match the skill at any host depth. Most hosts render to
+      // `<hostSubdir>/skills/gstack-<skill>/SKILL.md`, but a host whose
+      // hostSubdir is itself a skills root (dsh: `.dsh/skills`) renders one
+      // level deeper, so a pattern anchored to the path start silently drops
+      // it and the host-set comparison below then fails on a false negative.
       && /(?:^|\/)gstack-plan-devex-review\/SKILL\.md$|^plan-devex-review\/SKILL\.md$/.test(artifact.relativePath));
     expect(skills.map(artifact => artifact.host).sort()).toEqual([...ALL_HOST_NAMES].sort());
     for (const artifact of skills) {
@@ -35,7 +40,10 @@ test('every host exposes the DX per-call rule before the pre-review audit and St
       expect(prerequisite).toBeLessThan(content.indexOf('### 0B. Empathy Narrative', persona));
       const beforeAudit = content.slice(0, audit);
       expect(beforeAudit).toContain('including Step 0 and outside voice');
-      expect(beforeAudit).toContain('One independent choice per AskUserQuestion call, never separate tabs');
+      // The rule is host-neutral; only the tool's spelling is not. dsh's
+      // toolRewrites map renames AskUserQuestion to its own snake_case tool, so
+      // accept either spelling rather than pinning the Claude-ism on every host.
+      expect(beforeAudit).toMatch(/One independent choice per (?:AskUserQuestion|ask_user_question) call, never separate tabs/);
       // Claude loads the review section later; these evidence limits must also
       // govern Step 0's first journey questions on every host.
       const earlyEvidence = beforeAudit.replace(/\s+/g, ' ');
@@ -89,8 +97,14 @@ test('every host exposes the DX per-call rule before the pre-review audit and St
       expect(allContent).toContain('Keep estimates labeled until measured');
       const benchmark = content.slice(content.indexOf('### 0C. Competitive DX Benchmarking'),
         content.indexOf('### 0D. Magical Moment Design'));
-      expect(benchmark.indexOf('Define the clock before comparing')).toBeGreaterThanOrEqual(0);
-      expect(benchmark.indexOf('Define the clock before comparing')).toBeLessThan(benchmark.indexOf('AskUserQuestion:'));
+      // Same per-host spelling variance as above: dsh's toolRewrites map renders
+      // `ask_user_question:`, so anchor on the earliest spelling this host emits
+      // rather than on the Claude-ism alone.
+      const clock = benchmark.indexOf('Define the clock before comparing');
+      const askAnchor = benchmark.search(/(?:AskUserQuestion|ask_user_question):/);
+      expect(clock).toBeGreaterThanOrEqual(0);
+      expect(askAnchor).toBeGreaterThanOrEqual(0);
+      expect(clock).toBeLessThan(askAnchor);
       expect(benchmark).toContain('Compare times only across equivalent boundaries');
       expect(benchmark).toContain('Never infer no wait from a peer');
       expect(benchmark).toContain('Start → result');

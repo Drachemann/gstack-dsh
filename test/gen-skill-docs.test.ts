@@ -3496,12 +3496,30 @@ describe('setup script validation', () => {
     expect(claudeSection).toContain('link_claude_root_skill_alias "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR"');
   });
 
-  test('setup supports --host auto|claude|codex|kiro|opencode|cursor; slate is informational', () => {
+  test('setup supports --host auto|claude|codex|kiro|opencode|cursor|dsh; slate is informational', () => {
     expect(setupContent).toContain('--host');
     // #2361: slate moved OUT of the install accept-list (it was accepted but
     // never dispatched — a silent exit-0 no-op) into an informational arm.
-    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|auto');
+    // dsh moved the other way: it was informational-only under the render-only
+    // port, and is now a real install target because a bare render leaves every
+    // skill's `$GSTACK_ROOT/bin/*` call failing.
+    expect(setupContent).toContain('claude|codex|kiro|factory|opencode|cursor|dsh|auto');
     expect(setupContent).toMatch(/^ {2}slate\)/m);
+    // The no-install-arm guard must know about dsh too, or the host silently
+    // configures nothing and exits 0.
+    expect(setupContent).toContain('[ "$INSTALL_DSH" -eq 0 ]');
+    expect(setupContent).toContain('INSTALL_DSH=1');
+  });
+
+  test('setup --host dsh renders and builds the runtime roots the preamble probes', () => {
+    expect(setupContent).toContain('DSH_SKILLS="$DSH_HOME_DIR/skills"');
+    expect(setupContent).toContain('DSH_RENDER="$INSTALL_GSTACK_DIR/.dsh/skills"');
+    // Both helpers exist, and the install arm builds both roots. Skipping
+    // either one is the failure this arm exists to prevent.
+    expect(setupContent).toContain('create_dsh_runtime_root()');
+    expect(setupContent).toContain('link_dsh_skill_dirs()');
+    expect(setupContent).toContain('create_dsh_runtime_root "$SOURCE_GSTACK_DIR" "$DSH_RENDER_GSTACK" "$DSH_RENDER"');
+    expect(setupContent).toContain('create_dsh_runtime_root "$SOURCE_GSTACK_DIR" "$DSH_GSTACK" "$DSH_RENDER"');
   });
 
   test('auto mode detects claude, codex, kiro, and opencode binaries', () => {
@@ -4437,7 +4455,10 @@ describe('plan-mode-info resolver (handshake-replacement)', () => {
     // section, none get the old handshake. Scan every candidate host tree in
     // the module-level out-dir render (--host all), which is always present —
     // so the check can no longer silently degrade to a console warning.
-    const hostDirs = ['.agents', '.openclaw', '.opencode', '.factory', '.hermes', '.kiro', '.cursor', '.slate'];
+    // Derived from the registry, never a literal list: a hardcoded roster
+    // silently skipped the newest host (dsh landed without being added here, so
+    // its tree was never scanned for the vestigial handshake).
+    const hostDirs = getExternalHosts().map(h => h.hostSubdir);
     let checked = 0;
     for (const host of hostDirs) {
       const skillsRoot = path.join(EXTERNAL_OUT, host, 'skills');
@@ -4937,5 +4958,110 @@ describe('brain-sync block reads project-scoped MCP registrations (#2499)', () =
       fs.rmSync(tmpHome, { recursive: true, force: true });
       fs.rmSync(projectDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ─── dsh host render ────────────────────────────────────────────────────────
+// The dsh port is a *host addition*, so its invariants belong next to the other
+// hosts' render assertions and reuse the `--host all` render above (no second
+// render). Two classes of pin live here:
+//   1. Things that must be TRUE of the dsh render (the runtime probe, dsh tool
+//      names, the restored review army, external frontmatter naming).
+//   2. Things that must remain UNCHANGED for the hosts that never opted into
+//      the new behaviour, so a dsh fix cannot silently retune Claude/Codex.
+describe('dsh host render', () => {
+  const DSH_SKILLS = path.join(EXTERNAL_OUT, '.dsh', 'skills');
+  const CODEX_SKILLS = path.join(EXTERNAL_OUT, '.agents', 'skills');
+
+  const readDsh = (name: string) =>
+    fs.readFileSync(path.join(DSH_SKILLS, `gstack-${name}`, 'SKILL.md'), 'utf-8');
+
+  test('a project-local skill root is preferred only when its launcher probe exists', () => {
+    // Without this guard, `.dsh/skills/gstack` — which the render itself
+    // creates — shadows a healthy global install and every `$GSTACK_ROOT/bin/*`
+    // call in every dsh skill fails. This is the bug the port shipped with.
+    const dsh = readDsh('review');
+    expect(dsh).toContain('[ -x "$_ROOT/.dsh/skills/gstack/bin/gstack-skill-start" ]');
+    expect(dsh).toContain('GSTACK_ROOT="$HOME/.dsh/skills/gstack"');
+    expect(dsh).not.toContain('[ -d "$_ROOT/.dsh/skills/gstack" ] && GSTACK_ROOT');
+  });
+
+  test('probe-less hosts keep the historical unconditional local preference', () => {
+    // Control: codex did not opt into the probe, so its rendered bytes must be
+    // byte-identical to before the dsh change.
+    const codex = fs.readFileSync(
+      path.join(CODEX_SKILLS, 'gstack-review', 'SKILL.md'),
+      'utf-8',
+    );
+    expect(codex).toContain('[ -n "$_ROOT" ] && [ -d "$_ROOT/.agents/skills/gstack" ] && GSTACK_ROOT=');
+    expect(codex).not.toContain('gstack-skill-start" ]');
+  });
+
+  test('Claude-only tool names are rewritten to their dsh equivalents', () => {
+    const ship = readDsh('ship');
+    expect(ship).not.toContain('ExitPlanMode');
+    expect(ship).toContain('exit_plan_mode');
+    // The plan-mode gate must name a tool that exists, not a Claude-ism.
+    expect(ship).toMatch(/exit_plan_mode/);
+  });
+
+  test('no dispatch site invents a subagent_type field', () => {
+    for (const name of ['review', 'ship', 'design-shotgun', 'plan-eng-review']) {
+      const body = readDsh(name);
+      // The only permitted mention is explanatory prose naming the field as
+      // absent. A real dispatch instruction would spell it as a parameter.
+      expect(body).not.toMatch(/subagent_type:\s*"/);
+    }
+  });
+
+  test('the review army survives on dsh and speaks dsh subagent', () => {
+    const review = readDsh('review');
+    expect(review).toContain('Review Army — Specialist Dispatch');
+    expect(review).toContain('**Subagent configuration (DeepSeek Harness):**');
+    // The dsh block must not assert Claude's parameter set.
+    expect(review).not.toContain('Use `subagent_type: "general-purpose"`');
+    expect(review).toMatch(/has NO `subagent_type` field/);
+    // And the ship-side army renders too (it shares the resolver).
+    expect(readDsh('ship')).toContain('Review Army — Specialist Dispatch');
+  });
+
+  test('dsh keeps the brain-aware resolvers rather than suppressing them', () => {
+    // Suppression is decided at render time, so suppressing these would mean a
+    // user who completes /setup-gbrain still gets zero brain-aware skills.
+    const review = readDsh('review');
+    expect(review).toMatch(/[Bb]rain/);
+  });
+
+  test('frontmatter carries the external name and preserves invocation metadata', () => {
+    const review = readDsh('review');
+    // dsh's registry keys skills by the frontmatter name, so it must equal the
+    // directory name or same-named skills from other packs collide.
+    expect(review).toMatch(/^name: gstack-review$/m);
+    // `triggers` renamed to `whenToUse`, and the indented block-sequence form
+    // must survive (the regex fix; a stripped list silently loses discovery).
+    expect(review).toMatch(/^whenToUse:$/m);
+    expect(review).toMatch(/^ {2}- /m);
+    expect(review).not.toMatch(/^triggers:/m);
+    // Legacy keys dsh explicitly REJECTS must never be emitted.
+    expect(review).not.toMatch(/^(modelInvocable|userInvocable|disableModelInvocation):/m);
+  });
+
+  test('setup-gbrain renders the dsh MCP layer, not the Claude CLI', () => {
+    const brain = readDsh('setup-gbrain');
+    expect(brain).toContain('DSH_MCP_JSON');
+    expect(brain).toMatch(/mcp\.json/);
+    expect(brain).toContain('${GBRAIN_MCP_TOKEN}');
+    // No Claude registration *command* in the dsh render. A host-contrast
+    // sentence may name `claude mcp add`, but it must not be an instruction.
+    expect(brain).not.toMatch(/claude mcp add --scope user/);
+    expect(brain).not.toMatch(/claude mcp list/);
+    // Step 5a must appear exactly once (the resolver owns the heading).
+    expect((brain.match(/^## Step 5a:/gm) ?? []).length).toBe(1);
+  });
+
+  test('the committed Claude render still has exactly one Step 5a and the claude CLI', () => {
+    const committed = fs.readFileSync(path.join(ROOT, 'setup-gbrain', 'SKILL.md'), 'utf-8');
+    expect((committed.match(/^## Step 5a:/gm) ?? []).length).toBe(1);
+    expect(committed).toMatch(/claude mcp add --scope user/);
   });
 });
