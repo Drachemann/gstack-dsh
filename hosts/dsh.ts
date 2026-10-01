@@ -160,10 +160,20 @@ const dsh = defineHost({
   // The global runtime root is a symlink farm of the source checkout. dsh's
   // skill provider scans exactly one level deep (`<root>/<name>/SKILL.md`), so
   // nested trees are never discovered as skills and one directory can hold the
-  // rendered router skill *and* every asset path the skills reference. The list
-  // is the observed `$GSTACK_ROOT/<path>` set across the rendered dsh corpus;
-  // `supabase/` is not reached through a placeholder, but
-  // `bin/gstack-telemetry-sync` reads `supabase/config.sh` through this root.
+  // rendered router skill *and* every asset path the skills reference.
+  //
+  // The list is the observed asset set across the rendered dsh corpus, gathered
+  // from BOTH reference forms — `$GSTACK_ROOT/<path>` and the literal
+  // `$HOME/.dsh/skills/gstack/<path>` that the path rewrites produce when the
+  // source text spelled `$HOME/.claude/...` instead of `~/.claude/...`. The
+  // second form bypasses `$GSTACK_ROOT` entirely (and the project-local
+  // override with it), which is how `freeze` and `extension` were missed on the
+  // first pass and `/unfreeze` failed with exit 127.
+  //
+  // Two deliberately absent entries: `.git` (gstack-upgrade probes for it, but
+  // its `elif` chain is written for a non-git runtime root — linking the source
+  // checkout's `.git` in would let an upgrade mutate the plugin's own git
+  // state) and `careful` (only reached from frontmatter hooks, which dsh drops).
   runtimeRoot: {
     globalSymlinks: [
       'bin',
@@ -181,6 +191,9 @@ const dsh = defineHost({
       'office-hours',
       'gstack-upgrade',
       'supabase',
+      'freeze',
+      'extension',
+      'VERSION',
       'ETHOS.md',
     ],
   },

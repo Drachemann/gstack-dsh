@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { spawnSync } from 'child_process';
 import { runCapturedCommand } from './helpers/sync-command-capture';
+import { dsh } from '../hosts';
 
 const ROOT = path.resolve(import.meta.dir, '..');
 const MAX_SKILL_DESCRIPTION_LENGTH = 1024;
@@ -5063,5 +5064,39 @@ describe('dsh host render', () => {
     const committed = fs.readFileSync(path.join(ROOT, 'setup-gbrain', 'SKILL.md'), 'utf-8');
     expect((committed.match(/^## Step 5a:/gm) ?? []).length).toBe(1);
     expect(committed).toMatch(/claude mcp add --scope user/);
+  });
+
+  test('every runtime asset the dsh render references is linked by the installer', () => {
+    // The gap this pins: a skill can reference a runtime asset through the
+    // literal `$HOME/.dsh/skills/gstack/<path>` form (what the path rewrites
+    // produce when the source spelled `$HOME/.claude/...` instead of
+    // `~/.claude/...`). That form bypasses `$GSTACK_ROOT` AND the project-local
+    // override, so an asset missing from the runtime root is unreachable in
+    // every project. `freeze` was missed exactly this way and `/unfreeze` failed
+    // with exit 127 — and the config/setup parity test could not catch it,
+    // because both lists were missing the same entry.
+    const referenced = new Set<string>();
+    const forms = [
+      /\$GSTACK_ROOT\/([A-Za-z0-9_.-]+)/g,
+      /\$HOME\/\.dsh\/skills\/gstack\/([A-Za-z0-9_.-]+)/g,
+    ];
+    for (const dir of fs.readdirSync(DSH_SKILLS)) {
+      const file = path.join(DSH_SKILLS, dir, 'SKILL.md');
+      if (!fs.existsSync(file)) continue;
+      const body = fs.readFileSync(file, 'utf-8');
+      for (const re of forms) {
+        for (const match of body.matchAll(re)) referenced.add(match[1]);
+      }
+    }
+    expect(referenced.size).toBeGreaterThan(10); // the scan must not go vacuous
+    // `.git` is deliberately absent: gstack-upgrade's elif chain is written for
+    // a non-git runtime root, and linking the checkout's .git in would let an
+    // upgrade mutate the plugin's own git state.
+    const linked = new Set([
+      ...dsh.runtimeRoot.globalSymlinks.map((asset) => asset.split('/')[0]),
+      '.git',
+    ]);
+    const missing = [...referenced].filter((asset) => !linked.has(asset)).sort();
+    expect(missing).toEqual([]);
   });
 });

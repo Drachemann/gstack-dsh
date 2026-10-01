@@ -2095,11 +2095,16 @@ create_dsh_runtime_root() {
 
   # Keep in sync with hosts/dsh.ts runtimeRoot.globalSymlinks — that list is the
   # canonical copy (`host-config-export.ts symlinks dsh` prints it), and this
-  # loop is its executable twin. The set is the observed `$GSTACK_ROOT/<path>`
-  # corpus plus supabase/, which bin/gstack-telemetry-sync reads through the root.
+  # loop is its executable twin. The set is the observed asset corpus, gathered
+  # from BOTH reference forms: `$GSTACK_ROOT/<path>` and the literal
+  # `$HOME/.dsh/skills/gstack/<path>` that the path rewrites produce when the
+  # source spelled `$HOME/.claude/...` rather than `~/.claude/...`. The second
+  # form bypasses $GSTACK_ROOT (and the project-local override with it) — that is
+  # how `freeze` was missed and `/unfreeze` failed with exit 127.
   for entry in bin lib browse design docs scripts review ship \
                plan-eng-review plan-design-review plan-devex-review \
-               design-html office-hours gstack-upgrade supabase; do
+               design-html office-hours gstack-upgrade supabase \
+               freeze extension VERSION; do
     [ -e "$gstack_dir/$entry" ] || continue
     rm -rf "$dsh_gstack/$entry"
     _link_or_copy "$gstack_dir/$entry" "$dsh_gstack/$entry"

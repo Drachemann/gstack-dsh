@@ -173,3 +173,38 @@ The same class covers the `ask_user_question` auto-decide hooks, which cannot
 fire on dsh at all. Neither is fixed here: both need a decision about how much
 of gstack's Claude-hook surface to re-express as dsh policy, and that decision
 changes behaviour for every skill.
+
+---
+
+## 7. Dogfood finding: the runtime root was missing referenced assets
+
+Invoking `/gstack-unfreeze` in a live session failed:
+
+```
+bash: /home/matt/.dsh/skills/gstack/freeze/bin/freeze-state.sh: No such file or directory
+freeze-state exit=127
+```
+
+The runtime root's asset list had been derived by grepping the rendered corpus
+for `$GSTACK_ROOT/<path>`. That missed a second reference form. When a template
+spells the path `$HOME/.claude/skills/gstack/...` rather than
+`~/.claude/skills/gstack/...`, the path rewrites produce a **literal**
+`$HOME/.dsh/skills/gstack/<path>` — which bypasses `$GSTACK_ROOT` *and* the
+project-local override, so the asset must exist at the global root and nowhere
+else. Three assets were unreachable this way:
+
+| Asset | Referenced by | Effect if missing |
+|---|---|---|
+| `freeze` | `freeze`, `guard`, `unfreeze`, `investigate` | `/unfreeze` and `/guard` exit 127 |
+| `extension` | `open-gstack-browser` | the Chrome-extension path fallback never resolves |
+| `VERSION` | `ios-sync` | upstream version read fails |
+
+All three are now linked, and a new test scans the rendered dsh tree for **both**
+reference forms and asserts every first path segment is in the linked set. That
+test found `VERSION` immediately after the first two were fixed — which is the
+point: the config↔installer parity test could not catch this class, because both
+lists were missing the same entries.
+
+`.git` is deliberately still absent. `gstack-upgrade` probes for it, but its
+`elif` chain is written for a non-git runtime root, and linking the source
+checkout's `.git` in would let an upgrade mutate the plugin's own git state.
