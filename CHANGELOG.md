@@ -50,6 +50,13 @@ gstack ready (dsh).
   `exit_plan_mode`, and no dispatch site asks for a `subagent_type` field that does not exist.
 - **Brain-aware blocks render for dsh hosts**, so completing `/setup-gbrain` makes the planning
   skills brain-aware instead of leaving them suppressed at render time.
+- **`/gstack-careful` finally does something on dsh.** It was inert there: its enforcement is a
+  Claude Code `PreToolUse` hook, and dsh has no hook mechanism. The dsh risk gate now treats the
+  safety mode as a switch — Jev still judges every tool call, and a confident danger is always
+  denied, but the *ambiguous* band blocks only while `/gstack-careful` or `/gstack-guard` is
+  active. Day-to-day automation is no longer interrupted by uncertainty, and the explicit mode is
+  there for work you cannot cheaply undo. The mode expires after 8 hours so it cannot outlive the
+  session that set it.
 - **dsh installs no longer touch Claude-only state** — the Claude render directory and the
   plan-tune hooks in `~/.claude/settings.json` are left alone by a `--host dsh` run.
 
