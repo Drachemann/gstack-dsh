@@ -9,6 +9,11 @@
  * is not exercised in CI because it touches the user's real ~/.bun/bin and
  * network. Instead we use --validate-only to exercise the D19 check and
  * --dry-run to exercise the D5 detect-first path end-to-end.
+ *
+ * These cases pin `--via source` explicitly: `--via auto` prefers the mise
+ * github backend when mise is present, and D5 detect-first is source-route
+ * behaviour, so leaving the route implicit made the suite depend on whether the
+ * machine happened to have mise installed.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
@@ -169,7 +174,7 @@ describe('gstack-gbrain-install D5 detect-first', () => {
         bin: { gbrain: './src/cli.ts' },
       })
     );
-    const r = await run(INSTALL, ['--dry-run']);
+    const r = await run(INSTALL, ['--via', 'source', '--dry-run']);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain(`detected existing gbrain clone at ${fakeGit}`);
     expect(r.stdout).toContain('would run bun install + bun link');
@@ -177,7 +182,7 @@ describe('gstack-gbrain-install D5 detect-first', () => {
 
   test('--dry-run falls through to fresh clone when no valid clone detected', async () => {
     // No ~/git/gbrain, no ~/gbrain.
-    const r = await run(INSTALL, ['--dry-run']);
+    const r = await run(INSTALL, ['--via', 'source', '--dry-run']);
     expect(r.status).toBe(0);
     expect(r.stdout).toContain('DRY RUN: would clone');
     expect(r.stdout).toContain('https://github.com/garrytan/gbrain.git');
@@ -188,7 +193,7 @@ describe('gstack-gbrain-install D5 detect-first', () => {
     const badGit = path.join(tmpHomeReal, 'git', 'gbrain');
     fs.mkdirSync(badGit, { recursive: true });
     fs.writeFileSync(path.join(badGit, 'package.json'), JSON.stringify({ name: 'not-gbrain' }));
-    const r = await run(INSTALL, ['--dry-run']);
+    const r = await run(INSTALL, ['--via', 'source', '--dry-run']);
     expect(r.status).toBe(0);
     // Falls through to fresh clone
     expect(r.stdout).toContain('DRY RUN: would clone');
