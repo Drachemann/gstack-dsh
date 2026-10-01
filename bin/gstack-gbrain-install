@@ -2,7 +2,16 @@
 # gstack-gbrain-install — install the gbrain CLI on a local Mac.
 #
 # Usage:
-#   gstack-gbrain-install [--install-dir <dir>] [--pinned-commit <sha>] [--dry-run]
+#   gstack-gbrain-install [--install-dir <dir>] [--pinned-commit <sha>]
+#                          [--via auto|mise|source] [--dry-run]
+#
+# --via (default auto): with mise on PATH, install gbrain as a managed,
+# shimmed tool via the github backend (github:garrytan/gbrain). This avoids
+# both failure modes of the source route: ~/.bun/bin is usually not on PATH,
+# and `bun link` writes outside mise's management. Any mise failure falls
+# back to the source clone. Use --via source to force the clone route.
+# NOTE: the backend must be github:, NOT npm: — npm's `gbrain` is an
+# unrelated package (stormcolor/gbrain), not garrytan/gbrain.
 #
 # D5 detect-first: before cloning anywhere, probe likely pre-existing
 # locations (~/git/gbrain and ~/gbrain) and reuse a working clone if one
@@ -51,6 +60,8 @@ DEFAULT_INSTALL_DIR="${GBRAIN_INSTALL_DIR:-$HOME/gbrain}"
 INSTALL_DIR="$DEFAULT_INSTALL_DIR"
 DRY_RUN=false
 VALIDATE_ONLY=false
+# auto = prefer mise when it is on PATH, else the source clone.
+VIA="auto"
 
 die() { echo "gstack-gbrain-install: $*" >&2; exit 2; }
 fail() { echo "gstack-gbrain-install: $*" >&2; exit 3; }
@@ -61,12 +72,15 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --install-dir) INSTALL_DIR="$2"; shift 2 ;;
     --pinned-commit) PINNED_COMMIT="$2"; PINNED_TAG=""; shift 2 ;;
+    --via) VIA="$2"; shift 2 ;;
     --dry-run) DRY_RUN=true; shift ;;
     --validate-only) VALIDATE_ONLY=true; shift ;;
     --help|-h) sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) die "unknown flag: $1" ;;
   esac
 done
+
+case "$VIA" in auto|mise|source) ;; *) die "--via must be auto, mise, or source (got: $VIA)" ;; esac
 
 # --- prerequisites ---
 check_prereq() {
@@ -94,6 +108,52 @@ if ! $VALIDATE_ONLY; then
   if ! $DRY_RUN && ! curl -s --head --max-time 10 https://github.com >/dev/null 2>&1; then
     fail "cannot reach https://github.com. Check your network and try again."
   fi
+fi
+
+# --- mise backend (preferred when this machine is mise-managed) -------------
+# mise owns gbrain as a versioned tool and shims it, which removes both failure
+# modes of the source path: bun's global bin (`~/.bun/bin`) is typically NOT on
+# PATH, and `bun link` writes outside mise's management.
+#
+# THE BACKEND MATTERS. `mise use npm:gbrain` resolves an UNRELATED package —
+# npm's `gbrain` is stormcolor/gbrain, "GPU Javascript Library for Machine
+# Learning" — not garrytan/gbrain. The correct route is the github backend:
+# garrytan/gbrain releases carry `gbrain-<os>-<arch>` binary assets. Do NOT
+# "simplify" this to npm:.
+#
+# Best-effort by construction: any mise failure falls through to the source
+# path below, so a mise problem can never block setup.
+GBRAIN_MISE_SPEC="github:garrytan/gbrain"
+if [ "$VIA" = "mise" ] || { [ "$VIA" = "auto" ] && command -v mise >/dev/null 2>&1; }; then
+  if ! command -v mise >/dev/null 2>&1; then
+    die "--via mise was requested but mise is not on PATH"
+  fi
+  if [ -n "$PINNED_COMMIT" ]; then
+    # mise resolves release TAGS, not arbitrary commits; honor the pin by
+    # falling through to the source path rather than silently ignoring it.
+    log "--pinned-commit given: mise cannot resolve a raw commit — using the source install"
+  elif $DRY_RUN; then
+    log "DRY RUN: would run: mise use -g ${GBRAIN_MISE_SPEC}@${PINNED_TAG:-latest}"
+    exit 0
+  else
+    log "mise detected — installing gbrain as a managed tool (${GBRAIN_MISE_SPEC})"
+    if mise use -g "${GBRAIN_MISE_SPEC}@${PINNED_TAG:-latest}" >/dev/null 2>&1; then
+      mise reshim >/dev/null 2>&1 || true
+      if command -v gbrain >/dev/null 2>&1; then
+        _mise_version=$(gbrain --version 2>/dev/null | head -1 | awk '{print $NF}' | tr -d '[:space:]v' || true)
+        log "installed gbrain ${_mise_version:-(version unknown)} via mise"
+        log "  managed by mise: upgrade with 'mise up gbrain', pin with 'mise use -g ${GBRAIN_MISE_SPEC}@<version>'"
+        log "  note: mise's minimum_release_age may hold back very recent releases by design"
+        exit 0
+      fi
+      log "mise reported success but 'gbrain' is still not on PATH — falling back to the source install"
+    else
+      log "mise install failed for ${GBRAIN_MISE_SPEC} — falling back to the source install"
+    fi
+  fi
+elif [ "$VIA" = "auto" ]; then
+  log "note: mise is not installed. 'mise use -g ${GBRAIN_MISE_SPEC}' manages gbrain as a"
+  log "      versioned, shimmed tool and avoids the PATH and bun-link pitfalls (https://mise.jdx.dev)."
 fi
 
 # --- D5 detect-first: probe common locations before cloning fresh ---

@@ -414,8 +414,15 @@ try {
   const raw = readFileSync(p, "utf8").trim();
   if (raw) doc = JSON.parse(raw);
 } catch (err) {
-  console.error("refusing to overwrite " + p + " — it is not valid JSON: " + err.message);
-  process.exit(1);
+  // A missing file is the ordinary FIRST registration, not a corrupt one:
+  // start from an empty document instead of refusing to write. Only a genuine
+  // read/parse failure is a reason to stop.
+  if (err.code === "ENOENT") {
+    doc = {};
+  } else {
+    console.error("refusing to overwrite " + p + " — it is not valid JSON: " + err.message);
+    process.exit(1);
+  }
 }
 if (doc === null || typeof doc !== "object" || Array.isArray(doc)) {
   console.error("refusing to overwrite " + p + " — top level must be a JSON object");
@@ -454,8 +461,15 @@ try {
   const raw = readFileSync(p, "utf8").trim();
   if (raw) doc = JSON.parse(raw);
 } catch (err) {
-  console.error("refusing to overwrite " + p + " — it is not valid JSON: " + err.message);
-  process.exit(1);
+  // A missing file is the ordinary FIRST registration, not a corrupt one:
+  // start from an empty document instead of refusing to write. Only a genuine
+  // read/parse failure is a reason to stop.
+  if (err.code === "ENOENT") {
+    doc = {};
+  } else {
+    console.error("refusing to overwrite " + p + " — it is not valid JSON: " + err.message);
+    process.exit(1);
+  }
 }
 if (doc === null || typeof doc !== "object" || Array.isArray(doc)) {
   console.error("refusing to overwrite " + p + " — top level must be a JSON object");
@@ -473,7 +487,9 @@ console.log("registered gbrain (stdio) in " + p);
 
 \`\`\`bash
 DSH_MCP_JSON="\${DSH_HOME:-$HOME/.dsh}/mcp.json"
-node -e '
+# The prefix assignment is required: \`node -e\` reads this from the process
+# ENVIRONMENT, so a plain shell variable that is not exported is invisible to it.
+DSH_MCP_JSON="$DSH_MCP_JSON" node -e '
 const doc = JSON.parse(require("node:fs").readFileSync(process.env.DSH_MCP_JSON, "utf8"));
 const row = doc.mcpServers && doc.mcpServers.gbrain;
 console.log(row ? "gbrain entry: " + JSON.stringify({ type: row.type, url: row.url, command: row.command, args: row.args }) : "gbrain entry: MISSING");
