@@ -443,6 +443,39 @@ tests without another permission question. Step 15 commits those tests.
 Every new invocation repeats Steps 1–16, including both reviews and the docs audit.
 Steps 12, 17 and 19 prevent duplicate bumps, pushes and PRs, never verification.
 
+### Dry walk (`--dry-run`)
+
+A dry walk rehearses every gate and mutates nothing. The user asks for it with the
+space-separated flag `--dry-run` in the invocation message (`/ship --dry-run`). Parse it
+yourself — it is a prose hint, never a dispatcher — read it once at the start, and save
+`DRY_RUN: yes` in the invocation record. Nothing else makes a run dry.
+
+Under `DRY_RUN: yes`, every **reading** step runs unchanged: Step 0.9 detection, Steps 1–2
+fetch and diff inspection, the existing test lanes (5–7), both reviews (9–11.5), Step 16
+stages 1–4, and Step 18's PR/MR lookup. Every **writing** step reports instead of performing:
+
+- **Step 3** — report the commits the merge would bring; run no `git merge`.
+- **Step 12 items 4–5** — print the `gstack-version-bump write` and
+  `gstack-decision-log` commands with `NEW_VERSION` resolved; run neither.
+- **Step 13** — draft the CHANGELOG entry and print it; write nothing.
+- **Step 14** — report the TODOs it would add or complete; write nothing.
+- **Step 14.5** — run the docs audit read-only; no writer, no doc edits.
+- **Steps 15 and 16 stage 5** — print the planned commit messages and grouping;
+  create no commit.
+- **Step 17** — skip the whole step, including the credential-guard install; print the
+  guard outcome it would have produced and `git push -u origin <branch-name>`.
+- **Step 19** — print `NEW_TITLE` and the composed body; create or update no PR/MR.
+- **Steps 20–21** — print the metrics JSON and the nudge text; write no record and no marker.
+
+Anything else that would write — Step 2's packaging config, Step 7's generated tests, any
+generated output — prints the intended change instead. Run the tests that already exist;
+generate no new ones and commit nothing.
+
+End with a **Dry walk report**: the base branch, the reviewed tree, every command above
+verbatim with its arguments resolved, the drafted CHANGELOG entry, the planned commits, and
+one closing line — "Dry walk: nothing was written, committed, pushed or published." A dry
+run is evidence, not a promise: an unprinted command was never rehearsed.
+
 ### Keep state between steps
 
 Keep one private Markdown **invocation record** outside the product tree and save
@@ -690,6 +723,8 @@ not web services with existing deployment.
 ## Step 3: Merge the base branch (BEFORE tests)
 
 Merge the base ref fetched in Step 1 so tests and reviews cover the integrated code:
+
+**Dry walk:** report the commits this merge would bring; run no merge.
 
 ```bash
 git merge origin/<base> --no-edit
@@ -3049,6 +3084,7 @@ chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
      arithmetic; ALREADY_BUMPED keeps `currentVersion`. Never use an empty candidate.
 
 4. **Write the bump** (FRESH, or an approved rebump):
+   **Dry walk:** print this command with `NEW_VERSION` resolved; run nothing.
    ```bash
    bun run $GSTACK_ROOT/bin/gstack-version-bump write --version "$NEW_VERSION" --regen-digest
    ```
@@ -3070,6 +3106,8 @@ chooses it in item 2 and ALREADY_BUMPED derives it in item 1.
    $GSTACK_ROOT/bin/gstack-decision-log '{"decision":"Ship NEW_VERSION (BUMP_LEVEL)","rationale":"WHY","scope":"repo","source":"skill","confidence":9}' 2>/dev/null || true
    ```
    Substitute `NEW_VERSION`, `BUMP_LEVEL`, and one-line `WHY` (scope or breaking-change signal). Best-effort, non-interactive, non-blocking.
+
+**Dry walk:** draft the CHANGELOG entry and print it; write no CHANGELOG file.
 
 ## Step 13: CHANGELOG (auto-generate)
 
@@ -3267,6 +3305,8 @@ auto-commit or push unexpected child commits.
 
 Make bisectable commits; if already committed, continue to Step 16. Never create an empty commit.
 
+**Dry walk:** print the planned commits and grouping; create none.
+
 1. Group changes with their tests, config/routes, views and Step 14.5 docs.
    Migrations may stand alone or accompany their model.
    Under 50 lines across fewer than 4 files may use one commit.
@@ -3397,6 +3437,8 @@ keeps its existing audit count; it does not authorize a third attempt.
 
 ### 5. Report, then push
 
+**Dry walk:** report, make no commit, then continue to Step 18.
+
 Commit only approved, verified release changes left uncommitted after Step 15,
 including generated outputs; use its grouping rules and never create an empty commit.
 Preserve unrelated user files.
@@ -3409,6 +3451,10 @@ stage 4's recovery before publication. Otherwise continue to Step 17.
 ---
 
 ## Step 17: Push
+
+**Dry walk:** skip this entire step — no credential-guard install and no `git push`.
+Print the guard outcome it would have produced and `git push -u origin <branch-name>`,
+then continue to Step 18. A dry walk never reaches the remote.
 
 **Credential pre-push guard (#1946) — run before the push:**
 
@@ -3520,6 +3566,8 @@ Prepare the title from that result; Step 19 scans and publishes it:
 2. For a new PR/MR, compose `v<NEW_VERSION> <type>: <summary>`.
 3. Save the result as `NEW_TITLE` for Step 19. Every created or updated title MUST
    start with `v$NEW_VERSION `; never publish an unprefixed title.
+
+**Dry walk:** print `NEW_TITLE` and the composed body; create or update no PR/MR.
 
 ## Step 19: Create PR/MR
 
