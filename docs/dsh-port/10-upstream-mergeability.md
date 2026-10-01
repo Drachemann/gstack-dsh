@@ -89,6 +89,38 @@ returns `''`). The substantive claim is that dsh's `subagent` has
 three `CROSS_MODEL_RESOLVERS` are kept because each has a native in-host
 subagent pass. The tool-rewrite table is a data table; conflicts are additive.
 
+### 2.7 `make-pdf` was missing everywhere an env-var host looks for it
+
+`scripts/resolvers/types.ts:55` sets `makePdfDir: '$GSTACK_MAKE_PDF'` for every
+`usesEnvVars` host (all but Claude), and `scripts/resolvers/make-pdf.ts` falls
+back to `"$GSTACK_MAKE_PDF/pdf"`. **Nothing ever defined that variable**, and the
+dsh runtime root never linked `make-pdf`. Result: `/gstack-make-pdf` printed
+`MAKE_PDF_NOT_AVAILABLE (P='/pdf')` on dsh, codex, factory, kiro, cursor and
+opencode — every non-Claude host.
+
+Three edits, all additive:
+
+- `scripts/resolvers/preamble/generate-preamble-bash.ts` — one more env-var line,
+  next to `GSTACK_BROWSE` / `GSTACK_DESIGN`.
+- `setup` — `make-pdf` added to the dsh asset loop.
+- `hosts/dsh.ts` — `make-pdf` added to `globalSymlinks`.
+
+**Merge note, recorded rather than glossed:** unlike every other delta in this
+document, the preamble line is **not** host-gated — it changes the rendered bytes
+of every env-var host, which is why `test/fixtures/golden/{codex,factory}-ship-SKILL.md`
+were refreshed in the same commit. The alternative (a dsh-only line) would knowingly
+leave the same one-line defect on five other hosts. The diff is a single line and
+the goldens make it visible; it is a good standalone upstream candidate, like the
+Claude-only guards in §2.3.
+
+### 2.8 `scripts/resolvers/dsh-upgrade-guard.ts` — new file, dsh-only
+
+`{{DSH_UPGRADE_GUARD}}` returns the Step 2 heading verbatim for every non-dsh
+host, so their rendered bytes are byte-identical (pinned by the unchanged Claude
+`gstack-upgrade/SKILL.md` render). Only dsh gains the symlink-farm detection
+described in `11-install-and-use.md` §5. The template line it replaces is the
+Step 2 heading itself, which is why no other host sees a stray blank line.
+
 ## 3. Merge checklist
 
 Run this after every `git merge origin/main` (or before opening an upstream PR):
@@ -100,6 +132,7 @@ bun run gen:skill-docs --host dsh                    # regenerate the dsh tree
 ./setup --host dsh </dev/null                        # install + runtime roots
 bun test test/host-config.test.ts test/gen-skill-docs.test.ts \
          test/setup-gbrain-path4-structure.test.ts test/gstack-skill-start.test.ts
+bun run test:plugin                                   # node --test; bun cannot see .dsh/
 bun run test:quick
 ```
 

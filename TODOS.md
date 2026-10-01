@@ -1,5 +1,98 @@
 # TODOS
 
+## gstack-dsh installability backlog (filed 2026-10-02, from four dogfood lanes)
+
+Four lanes (install / memory / engine / flow) ran from foreign `/tmp` projects against
+`feat/dsh-host-workflows`. Raw evidence: `/tmp/dogfood-{install,memory,engine,flow,lead}/FINDINGS.md`.
+Severity: **blocker** = cannot install/use gstack-dsh from another project; **friction** = works but
+misleads or costs a workaround; **polish** = cosmetic.
+
+### Resolved in this pass
+
+- **`/gstack-make-pdf` could not find its engine outside the source checkout** (blocker, ENG-1).
+  The resolver's only non-override candidates were `$_ROOT/.dsh/skills/gstack/make-pdf/...` (absent in
+  a foreign project) and `$GSTACK_MAKE_PDF` (never defined). Fixed in three places: the preamble now
+  emits `GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"`, and `make-pdf` joined the runtime-root asset
+  list (`setup` + `hosts/dsh.ts` `globalSymlinks`). Verified: `MAKE_PDF_NOT_AVAILABLE (P='/pdf')` before,
+  `test -x $GSTACK_ROOT/make-pdf/dist/pdf` after.
+- **`/gstack-upgrade` misclassified a dsh install and targeted upstream** (blocker, INST-4). Fixed with
+  a dsh-only `{{DSH_UPGRADE_GUARD}}` resolver (`scripts/resolvers/dsh-upgrade-guard.ts`) that detects the
+  symlink-farm runtime root and points at the checkout. Verified the guard prints the real checkout path.
+- **Plugin's Jev `fetch` had no egress receipt** (blocker, security). Fixed: `.dsh/plugin/lib/egress-receipt.js`
+  shells out to the shipped `bin/gstack-egress-receipt` fail-closed before the send; 6 tests pin ordering,
+  exact-bytes hashing, and the block.
+- **`.dsh/plugin/test` ran in no CI root** (blocker). Fixed: `test:plugin` = `node --test .dsh/plugin/test/`,
+  chained into `bun run test`, plus a merge-blocking `plugin-node-tests` job in `free-tests.yml`.
+  `test/dsh-plugin-suite-wiring.test.ts` pins it. NEVER add `.dsh/plugin/test` to TEST_ROOTS.
+- **Risk-gate listener + `classifyToolCall` had zero coverage** (blocker). Fixed: 7 tests drive the real
+  `tools/pre-execute` handler through a real `on:` harness.
+
+### Blockers (open)
+
+- **Bare `/ship`, `/review`, `/qa` do not exist for any project but this checkout** (INST-2). dsh scans
+  project `.dsh/skills` (rank 100), project `.agents/skills` (200), `$DSH_HOME/skills` (400),
+  `$DSH_AGENTS_HOME/skills` = `~/.agents/skills` (500). `setup --host dsh` links only rank 400, with
+  **namespaced** names. The 55 bare names come from the rank-200 project root `.agents/skills`, which is
+  gitignored and untracked, so a fresh clone has none. Fix: emit a bare-name dsh render and link it into
+  rank 500, or document `/gstack-*` as the only cross-project form. Effort M. Priority P1.
+  **Owning files:** `setup` (dsh arm), `hosts/dsh.ts`, `scripts/resolvers/preamble/generate-preamble-bash.ts`.
+- **gbrain memory from a foreign project writes into the gstack-dsh code mirror** (MEM-3). MCP `remember`
+  without `source_id` binds to `gstack-code-gstack-dsh-mirror`; `source_id: "default"` returns
+  `scope_denied`. There is no per-project source. Fix: a per-project source (or an explicit refusal when
+  the only writable source is a code mirror). Effort M. Priority P1.
+  **Owning files:** `~/.dsh/mcp.json` mount + the memory/brain ingest path.
+- **Agent Teams teammates cannot execute a turn in this session** (HARNESS-1). Four `spawn_teammate` calls
+  returned `running`, then the member went inactive with zero tool calls and empty diagnostics; two
+  background-subagent ids reported `failed before it finished ... no closing message`. All four lanes were
+  executed by the Lead instead. Needs a harness-side repro. Effort S (triage) once reproducible. Priority P1.
+  **Owning files:** DSH harness, not this repo.
+
+### Friction (open)
+
+- **`setup --host dsh` run from a foreign project installs nothing into it** (INST-1/INST-7). It regenerates
+  the gstack checkout's `.dsh/skills` and re-links `$DSH_HOME/skills`, then prints
+  `project skills: /home/matt/src/gstack-dsh/.dsh/skills` while cwd is the foreign repo. The only install
+  path is "run setup inside the checkout". Fix: print the invoking-project path or say plainly that dsh
+  installs user-scoped. Effort S. Priority P2. **Owning files:** `setup` dsh arm.
+- **The runtime root is a symlink farm into the checkout** (FLOW-4a). All ~20 assets are symlinks, so moving
+  or deleting the checkout breaks the install; `freeze/bin/freeze-state.sh` additionally relies on
+  `../../careful/bin/hook-extract.sh` resolving through a symlink `..` (it is not in the linked set). Fix:
+  add `careful` to the asset list and state the "checkout must stay" constraint in install docs. Effort S.
+  Priority P2. **Owning files:** `setup` asset loop, `hosts/dsh.ts`.
+- **`/gstack-ship` has no dry walk** (FLOW-2). Every gate is prose plus real `git`/`gh` commands; the push
+  site is unconditional (`ship/SKILL.md:1113`). A `--dry-run` convention would make the flow lane testable.
+  Effort M. Priority P2.
+- **A cookie-imported browse daemon blocks local-HTML renders** (ENG-2). `/diagram` and `/make-pdf` fail
+  with a message whose fix is `$B stop`. Fix: auto-restart or pre-flight the cookie state. Effort S.
+  Priority P3. **Owning files:** `lib/aside-render.ts:499-500`.
+- **`browse load-html file:///abs/path` silently renders `about:blank`** (ENG-4). It expects a bare path;
+  a `file://` URL fails with a confusing message and exit 0. No shipped skill does this, but a hand-written
+  call gets a silently wrong result. Fix: reject the scheme explicitly. Effort S. Priority P3.
+  **Owning files:** `browse/src/*` (load-html validation).
+- **Same-origin clones share one checkpoints dir** (MEM-2). Intended for Conductor worktrees; also true for
+  separate clones, so `/context-restore` can load another clone's checkpoint. Worth a note in the skill.
+  Effort XS. Priority P3. **Owning files:** `bin/gstack-slug`, `gstack-context-restore/SKILL.md`.
+- **Semantic search silently degrades to weak hits** (MEM-4). From a foreign project, `search` returns
+  gstack-dsh code pages with `"evidence":"weak_semantic"` and no warning that the brain holds nothing for
+  this project. Fix: surface the degraded state in the skill's brain block. Effort S. Priority P3.
+- **docs/dsh-port/09 section 6 is stale** (FLOW-4b). It says `/gstack-careful` is "documentation of intent,
+  not an active gate"; the render writes `~/.gstack/careful.json` and the plugin risk gate reads it
+  (verified: `readCareMode()` to `MODE=careful`). Fixed by an appended correction in section 6. Effort XS.
+
+### Polish (open)
+
+- **`design --help` / `browse --version` print `Unknown command: ...` before the usage text** (ENG-3).
+  Exit 0, but it reads like a failure. Effort XS. Priority P3. **Owning files:** `design/src/*`,
+  `browse/src/commands.ts`.
+
+### Verified good on Linux with no Aside (no action)
+
+browse fallback (`load-html`, `console`, `text`, `screenshot`), `gstack-render` (`ENGINE=browse`), the full
+diagram triplet, `browse/dist/browse` + `design/dist/design` executables, `/gstack-freeze` +
+`/gstack-unfreeze` through the real writer and the plugin gate (8/8 cases incl. a relative path and live
+in-session enforcement), `/gstack-review` preflight from a foreign project, `/gstack-careful` marker
+round-trip, context-save/restore/learn, and the fresh-machine preamble degrading with a repair hint.
+
 ## NEXT PRIORITY
 
 ### P2/P3: impeccable interop deferrals (filed 2026-09-08, from the CEO + eng reviews of docs/designs/IMPECCABLE_INTEROP.md)

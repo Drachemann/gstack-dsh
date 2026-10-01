@@ -174,6 +174,19 @@ fire on dsh at all. Neither is fixed here: both need a decision about how much
 of gstack's Claude-hook surface to re-express as dsh policy, and that decision
 changes behaviour for every skill.
 
+**Correction (2026-10-02, dogfood lanes).** The line above — "documentation of
+intent, not an active gate" — was true when written and is now **stale**. The
+dsh render of `/gstack-careful` writes `~/.gstack/careful.json`
+(`gstack-careful/SKILL.md:32`), and `.dsh/plugin/lib/index.js` reads that marker
+on every gated tool call (`readCareMode`, line 109; consulted at the gate, line
+892). Verified from a foreign project: writing the marker the way the skill does
+flips `readCareMode()` from `off` to `{mode:'careful', reason:'active'}`, and the
+ambiguous band that is merely *observed* with no marker is **blocked** with one.
+`/gstack-guard` writes `mode: 'guard'` and `/gstack-unfreeze` removes the file, so
+the whole tier is live. What remains true: dsh has no `PreToolUse` hook, and
+dsh's approval policy is still authoritative underneath. The auto-decide hook
+class is still inert.
+
 ---
 
 ## 7. Dogfood finding: the runtime root was missing referenced assets
