@@ -155,6 +155,31 @@ named here passed on the merged result.
 exercised on a real Chromium daemon, not on macOS/Aside. Verified-good list below is still the standing
 record of what works with no Aside.
 
+### cso free-suite portability (filed 2026-10-02, from the friction-batch verification)
+
+Triaging the free suite's red `test/cso-*` family (14 failures in isolation on this machine) found
+one genuine regression of ours and one environment landmine.
+
+- **FIXED: `test/cso-distribution.test.ts` pinned a stale `needs` list.** Commit `97e85d29` added the
+  `plugin-node-tests` job to the `free-tests` aggregate so plugin tests are merge-blocking, but the test
+  asserting that list still expected the four-job version. Updated to
+  `['free-suite', 'plugin-node-tests', 'cso-macos-launcher', 'cso-windows-launcher', 'cso-docker-integration']`.
+- **OPEN (P2): preparation refuses every tree built under `umask 0002`.** `lib/cso/preparation-executor.ts:557`
+  fails `UNSAFE_PATH` on any directory with `mode & 0o022`, i.e. group- **or** other-writable. With this
+  machine's `umask 0002`, every directory the fixtures create is `0775`, so 12 acquisition / adversarial /
+  Rails tests fail with `CsoError: Preparation tree contains a publicly writable directory`. Under
+  `umask 022` the same files are **28 pass / 0 fail**, and the whole family is **625 pass / 27 skip / 1 fail**.
+  So this is not a code regression — but it IS a real operator-facing defect: any Linux user on the very
+  common `umask 0002` (user-private groups) gets a hard `UNSAFE_PATH` from `/gstack-cso` preparation, with a
+  message that blames their tree rather than their umask. Fix options, in preference order: (a) exempt
+  directories the executor did not itself create, (b) norm the check against the process umask rather than
+  rejecting group-write outright, or (c) chmod the preparation root private as it is created. Needs a product
+  decision because the check is deliberate hardening. Effort S–M. **Owning files:**
+  `lib/cso/preparation-executor.ts` (`walk`, ~line 557).
+- **OPEN (P3): the Python runner-shadow test needs a local venv.** `test/cso-python-runner-shadow.test.ts`
+  skips only when `python` is absent; here `python -m venv` exits 1, so the test fails instead of skipping.
+  It should skip when `venv`/`ensurepip` is unavailable, not only when the interpreter is missing. Effort XS.
+
 ### Verified good on Linux with no Aside (no action)
 
 browse fallback (`load-html`, `console`, `text`, `screenshot`), `gstack-render` (`ENGINE=browse`), the full
