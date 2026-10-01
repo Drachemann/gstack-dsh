@@ -250,6 +250,18 @@ export async function handleWriteCommand(
 
       if (!filePath) throw new Error('Usage: browse load-html <file> [--wait-until load|domcontentloaded|networkidle] [--tab-id <N>]  |  load-html --from-file <payload.json> [--tab-id <N>]');
 
+      // `load-html` documents a filesystem PATH; a `file://` URL is a navigation
+      // shape (`browse goto`), not a path. It used to be path.resolve()'d
+      // verbatim, so `file:///tmp/a.html` became `<cwd>/file:/tmp/a.html` — a
+      // confusing "file not found" that left the tab on about:blank (a later
+      // screenshot then "succeeded" against the wrong page). Reject the scheme
+      // explicitly and name the form that works.
+      if (/^file:/i.test(filePath)) {
+        throw new Error(
+          `load-html: ${filePath} is a URL, not a path. load-html takes a filesystem path — use 'browse load-html <file.html>' (or 'browse goto ${filePath}' to navigate to a file URL).`
+        );
+      }
+
       // Extension allowlist
       const ALLOWED_EXT = ['.html', '.htm', '.xhtml'];
       const ext = path.extname(filePath).toLowerCase();

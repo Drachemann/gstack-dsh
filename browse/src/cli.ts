@@ -27,6 +27,36 @@ const config = resolveConfig();
 const IS_WINDOWS = process.platform === 'win32';
 
 /**
+ * Version string for `browse --version`.
+ *
+ * Prefer the repo's VERSION file (the release this CLI was built from) over the
+ * build hash in `browse/dist/.version` — the hash exists for the daemon
+ * version-mismatch check, not as a user-facing version. Source tree (dev):
+ * `browse/src/cli.ts` → `<repo>/VERSION`. Built binary: `<repo>/browse/dist/browse`
+ * → `<repo>/VERSION`. When neither resolves (a copied-elsewhere binary), fall
+ * back to the build hash so the answer is still a real identifier.
+ */
+export function browseVersion(
+  metaDir: string = import.meta.dir,
+  execPath: string = process.execPath,
+): string {
+  const candidates: string[] = [];
+  // `$bunfs` is the compiled binary's virtual root; its `../../VERSION` would
+  // resolve to `/VERSION`, so never probe it from there.
+  if (!metaDir.includes('$bunfs')) candidates.push(path.resolve(metaDir, '..', '..', 'VERSION'));
+  candidates.push(path.resolve(path.dirname(execPath), '..', '..', 'VERSION'));
+  for (const file of candidates) {
+    try {
+      const v = fs.readFileSync(file, 'utf8').trim();
+      if (v) return v;
+    } catch {
+      // try the next candidate
+    }
+  }
+  return readVersionHash(execPath) ?? 'unknown';
+}
+
+/**
  * Startup health-probe budget (ms) for a freshly spawned server. The daemon is
  * detached + unref'd, so it keeps booting regardless of how long the CLI is
  * willing to poll — this constant only bounds how long `startServer` waits
@@ -1565,6 +1595,15 @@ Dialogs:        dialog-accept [text] | dialog-dismiss
 Refs:           After 'snapshot', use @e1, @e2... as selectors:
                 click @e3 | fill @e4 "value" | hover @e1
                 @c refs from -C: click @c1`);
+    process.exit(0);
+  }
+
+  // `--version` (and its bare/-v spellings) is informational, not a command:
+  // without this it fell through to the daemon, which answered "Unknown
+  // command: '--version'. Available commands: ..." and exited 1 — reading like
+  // a failure for a question that has a one-line answer.
+  if (args[0] === '--version' || args[0] === '-v' || args[0] === 'version') {
+    console.log(`browse ${browseVersion()}`);
     process.exit(0);
   }
 

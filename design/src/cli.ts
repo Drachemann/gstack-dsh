@@ -122,8 +122,44 @@ async function runSetup(): Promise<void> {
   }
 }
 
+/** Release version from the repo VERSION file (dev: design/src, built: design/dist). */
+async function designVersion(): Promise<string> {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const argv1 = process.argv[1];
+  const candidates = [
+    // `$bunfs` is the compiled binary's virtual root; never probe VERSION from there.
+    ...(argv1 && path.isAbsolute(argv1) && !argv1.includes("$bunfs")
+      ? [path.resolve(path.dirname(argv1), "../../VERSION")]
+      : []),
+    path.resolve(path.dirname(process.execPath), "..", "..", "VERSION"),
+  ];
+  for (const file of candidates) {
+    try {
+      const v = fs.readFileSync(file, "utf8").trim();
+      if (v) return v;
+    } catch {
+      // try the next candidate
+    }
+  }
+  return "unknown";
+}
+
 async function main(): Promise<void> {
   const { command, flags, positionals } = parseArgs(process.argv);
+
+  // `--help`/`-h`/`help` and `--version`/`-v`/`version` are informational, not
+  // commands. They used to fall through to the unknown-command branch, which
+  // printed "Unknown command: --help" ABOVE the usage text (stderr, unbuffered)
+  // and exited non-zero — reading like a failure for a request that succeeded.
+  if (command === "help" || command === "--help" || command === "-h") {
+    printUsage();
+    process.exit(0);
+  }
+  if (command === "version" || command === "--version" || command === "-v") {
+    console.log(await designVersion());
+    process.exit(0);
+  }
 
   if (!COMMANDS.has(command)) {
     console.error(`Unknown command: ${command}`);
