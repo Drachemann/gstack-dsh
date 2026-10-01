@@ -88,9 +88,11 @@ export function generateGBrainSaveResults(ctx: TemplateContext): string {
 **Skip this entire section if \`gbrain\` is not on PATH.**
 
 If the skill output is worth preserving, save it via
-\`gbrain put "<slug>" --content "<frontmatter + markdown>"\`. Full template
-(heredoc body, frontmatter shape, entity-stub instructions, throttle
-handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
+\`gbrain put "<slug>" --content "<frontmatter + markdown>"\`. On a machine with
+more than one source, pass \`--source-id <id>\` — gbrain defaults to its selected
+source, which on a synced repo is that repo's code mirror, not your memory
+source. Full template (heredoc body, frontmatter shape, entity-stub
+instructions, throttle handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
   }
 
   return `## Save Results to Brain
@@ -100,7 +102,14 @@ handling): see \`docs/gbrain-write-surfaces.md\` §Save Template.`;
 After completing this skill, save the output:
 
 \`\`\`bash
-gbrain put "${meta.slugPrefix}/<feature-slug>" --content "$(cat <<'EOF'
+# Route to the configured memory source when one is set. Without this, gbrain
+# writes to its "selected source", which on a synced repo is the repo's code
+# mirror — durable memory then lands in code pages. Unset keeps gbrain's own
+# routing, so this is a no-op by default. The id is a short source name (no
+# spaces), so the unquoted expansion below is deliberate.
+_GB_SRC=$(${ctx.paths.binDir}/gstack-config get gbrain_memory_source 2>/dev/null)
+[ -n "$_GB_SRC" ] && _GB_SRC="--source-id $_GB_SRC"
+gbrain put "${meta.slugPrefix}/<feature-slug>" $_GB_SRC --content "$(cat <<'EOF'
 ---
 title: "${meta.title}: <feature name>"
 tags: [${meta.tag}, <feature-slug>]
