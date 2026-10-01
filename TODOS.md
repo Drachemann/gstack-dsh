@@ -38,16 +38,52 @@ misleads or costs a workaround; **polish** = cosmetic.
 
 ### Blockers (open)
 
-- **gbrain memory from a foreign project writes into the gstack-dsh code mirror** (MEM-3). MCP `remember`
-  without `source_id` binds to `gstack-code-gstack-dsh-mirror`; `source_id: "default"` returns
-  `scope_denied`. There is no per-project source. Fix: a per-project source (or an explicit refusal when
-  the only writable source is a code mirror). Effort M. Priority P1.
-  **Owning files:** `~/.dsh/mcp.json` mount + the memory/brain ingest path.
-- **Agent Teams teammates cannot execute a turn in this session** (HARNESS-1). Four `spawn_teammate` calls
-  returned `running`, then the member went inactive with zero tool calls and empty diagnostics; two
-  background-subagent ids reported `failed before it finished ... no closing message`. All four lanes were
-  executed by the Lead instead. Needs a harness-side repro. Effort S (triage) once reproducible. Priority P1.
-  **Owning files:** DSH harness, not this repo.
+- **gbrain has no memory source, so every `remember` is attributed to this repo's code mirror** (MEM-3).
+  `gbrain sources list` shows exactly ONE source: `gstack-code-gstack-dsh-mirror` (a code mirror of this
+  repo, 1934 pages, `/home/matt/.gbrain/code-mirrors/gstack-dsh-git`). A stdio MCP caller with no grant
+  binds its write to the only source, which is why `remember` from any project lands there and
+  `source_id: "default"` returns `scope_denied` (no such source). The documented memory source
+  (`~/.gstack/` curated memory as `gstack-brain-<user>`, `setup-gbrain/sections/claude-md-persist.md:59`)
+  **does not exist on this machine**: `~/.gstack/gbrain-detection.json` reports
+  `gstack_brain_sync_mode: "off"` and `gstack_brain_git: false`, so the federation pipeline that creates it
+  was never enabled.
+  **Adding it is owner-CLI work, not MCP work**: `sources_add` over MCP is refused with
+  `writer_coordinator_required` ("Managed source lifecycle requires the verified owner CLI"), and the
+  owner CLI cannot open the PGLite store while `gbrain serve` holds the lock — so the fix needs
+  `pkill -f '[g]brain serve'`, `gbrain sources add <id> --path <dir>` (the path must be a git repo with
+  committed files), then a dsh restart to re-mount MCP.
+  **Blocks on one user decision:** where the long-lived memory store lives (whether to git-init `~/.gstack`
+  itself and enable the curated-memory pipeline, or stand up a dedicated memory repo), since that is the
+  user's personal data layout. Effort M. Priority P1.
+  **Owning files:** gbrain source registration (owner CLI) + `setup-gbrain/sections/claude-md-persist.md`.
+
+### Resolved in this pass (harness)
+
+- **Agent Teams teammates could not execute a turn** (HARNESS-1). The child sessions carried a route the
+  provider does not serve — **provider `deepseek-official` with a gemini model name** — and the DeepSeek
+  API rejected it. The child journals carry the provider's own words, for TWO stale ids:
+  `The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed gemini-2.5-pro`
+  (install-lane, `eb317620`) and `...but you passed gemini-2.5-flash` (probe-lane, `45dfdd83`), each
+  `INVALID_REQUEST` 400 → `turn/end` with `reason.kind: "error"`, **0 tool calls**, no closing message,
+  and `diagnostics: []` on the roster — exactly the reported symptom.
+  Fixed in `/home/matt/.dsh/profiles/web/cordis.patch.yml`: `agent-default-model` pinned to
+  `deepseek-official/deepseek-flash`, and `subagent-model-selection-settings` enabled with
+  `allowedModels: [deepseek-official/deepseek-flash]` (it previously listed six opencode models this host
+  cannot serve). `deepseek-official`'s real catalog is exactly `[deepseek-flash, deepseek-v4-pro]`
+  (`@deepseek-ai/dsh-llm-deepseek/lib/index.js:42-53`), i.e. the 400's allowed list.
+  Verified with a real probe teammate: its descriptor and every request record are
+  `deepseek-official/deepseek-flash`, **2 tool calls**, `turn/end reason.kind: "completed"`, and it
+  delivered its report to the Lead. The subagent-route pin is live immediately; `agent-default-model`
+  applies from the next dsh restart.
+  **Mechanism, stated honestly:** the pin is verified to fix the symptom, but *why* the stale child id was
+  chosen is **unproven**. A verifier lane disproved the obvious explanation — all 24 of the Lead's request
+  headers, including one seconds after the failing child spawned, were `deepseek-official/deepseek-flash`,
+  so the child did not inherit a bad route from the parent's recorded traffic. The stale ids exist nowhere
+  on disk in the profile, its `node_modules`, or the dsh bundle store. `dsh-llm-deepseek/README.md:52`
+  documents that "a saved selection can still submit requests after its catalog entry disappears", which
+  fits a client-side saved selection (browser localStorage / session settings) that is not readable from
+  disk — plausible, not proven. A second independent signal of the same class: `list_agents` still reports
+  `openrouter/auto-beta` for the Lead even though that id was removed from the profile catalog at 08:23:09.
 
 ### Friction (open)
 
