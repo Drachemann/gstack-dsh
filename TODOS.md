@@ -38,24 +38,39 @@ misleads or costs a workaround; **polish** = cosmetic.
 
 ### Blockers (open)
 
-- **gbrain has no memory source, so every `remember` is attributed to this repo's code mirror** (MEM-3).
-  `gbrain sources list` shows exactly ONE source: `gstack-code-gstack-dsh-mirror` (a code mirror of this
-  repo, 1934 pages, `/home/matt/.gbrain/code-mirrors/gstack-dsh-git`). A stdio MCP caller with no grant
-  binds its write to the only source, which is why `remember` from any project lands there and
-  `source_id: "default"` returns `scope_denied` (no such source). The documented memory source
-  (`~/.gstack/` curated memory as `gstack-brain-<user>`, `setup-gbrain/sections/claude-md-persist.md:59`)
-  **does not exist on this machine**: `~/.gstack/gbrain-detection.json` reports
-  `gstack_brain_sync_mode: "off"` and `gstack_brain_git: false`, so the federation pipeline that creates it
-  was never enabled.
-  **Adding it is owner-CLI work, not MCP work**: `sources_add` over MCP is refused with
-  `writer_coordinator_required` ("Managed source lifecycle requires the verified owner CLI"), and the
-  owner CLI cannot open the PGLite store while `gbrain serve` holds the lock — so the fix needs
-  `pkill -f '[g]brain serve'`, `gbrain sources add <id> --path <dir>` (the path must be a git repo with
-  committed files), then a dsh restart to re-mount MCP.
-  **Blocks on one user decision:** where the long-lived memory store lives (whether to git-init `~/.gstack`
-  itself and enable the curated-memory pipeline, or stand up a dedicated memory repo), since that is the
-  user's personal data layout. Effort M. Priority P1.
-  **Owning files:** gbrain source registration (owner CLI) + `setup-gbrain/sections/claude-md-persist.md`.
+_None. MEM-3 was the last one; see its resolution below._
+
+### Resolved in this pass (memory)
+
+- **Memory from any project was attributed to this repo's code mirror** (MEM-3). Reproduced exactly: with
+  `gbrain capture` from `/tmp` and no `--source`, `gstack-code-gstack-dsh-mirror` went **1934 → 1935**
+  pages, while the two memory-ish sources did not move. Root cause, established with the CLI once the
+  store was unlocked: `gbrain put`/`capture` default to **"the selected source"**
+  (`gbrain put --help`), and the only source the dsh-spawned MCP server can see or write is the code
+  mirror. There was no memory source at all — `gbrain sources list` had just
+  `gstack-code-gstack-dsh-mirror` (+ a built-in `default` the MCP surface never showed), and the
+  documented `gstack-brain-<user>` (`setup-gbrain/sections/claude-md-persist.md:59`) had never been
+  created because `~/.gstack/gbrain-detection.json` reports `gstack_brain_sync_mode: "off"`.
+  **Fixed in two parts, both verified:**
+  1. Created `~/.gbrain/memory` as a git repo and registered it as source `gstack-brain-matt`
+     (`gbrain sources add gstack-brain-matt --path /home/matt/.gbrain/memory --federated`). This is
+     owner-CLI work: MCP `sources_add` is refused with `writer_coordinator_required`, and the CLI cannot
+     open the PGLite store while `gbrain serve` holds the lock, so the row in `~/.dsh/mcp.json` had to be
+     parked for the duration (backup: `~/.dsh/mcp.json.bak-gbrain-source-add`, restored afterwards).
+  2. `scripts/resolvers/gbrain.ts` now routes the save template through a configured memory source:
+     `_GB_SRC=$($GSTACK_BIN/gstack-config get gbrain_memory_source)` → `--source-id <id>`. Unset is a
+     no-op, so no other host's behavior changes. Set here with
+     `gstack-config set gbrain_memory_source gstack-brain-matt`.
+  Verified end-to-end from `/tmp`: the same write that previously incremented the code mirror reports
+  `"source_id": "gstack-brain-matt"`, moves `gstack-brain-matt` 1 → 2 pages, and leaves the mirror at 1936.
+  **Residual, by gbrain design, not fixable from gstack:** the MCP server dsh spawns binds its write grant
+  to the cwd repo's source, so over MCP `sources_list` shows only the code mirror and
+  `remember(source_id: "gstack-brain-matt")` returns `scope_denied` — same as `source_id: "default"`.
+  Consequences: raw MCP `remember` still lands in the code mirror and durable memory must go through the
+  CLI `put --source-id` path (which is what the resolver now does). Re-pointing the MCP mount's cwd at
+  `~/.gbrain/memory` would likely move the grant, but it would also swap the MCP surface away from the
+  code mirror, i.e. lose MCP code-intelligence reads — a tradeoff left to the operator. Effort S if
+  wanted. **Owning files:** `~/.dsh/mcp.json` mount.
 
 ### Resolved in this pass (harness)
 
