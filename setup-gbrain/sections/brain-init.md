@@ -204,7 +204,7 @@ Capture two values from the verify output for downstream steps:
 >   ✅ Unlocks `gbrain code-def`, `code-refs`, `code-callers` per worktree
 >   ✅ Independent engine — won't disturb remote brain or share transcripts
 > B) No, remote MCP only
->   ✅ Zero local state — only `~/.claude.json` MCP registration
+>   ✅ Zero local state — only the agent's MCP registration file
 >   ❌ Symbol code queries fall back to Grep in this repo's worktrees
 > Net: A = full split-engine; B = remote-only.
 
@@ -249,11 +249,13 @@ was picked, Steps 3/4/5 are no-ops; also skip Step 7.5 (transcript ingest)
 since memory-stage routes through the artifacts pipeline in remote-http mode
 per plan D11.
 
-The bearer token (`GBRAIN_MCP_TOKEN`) stays in process env until Step 5a's
-`claude mcp add --header` consumes it; then `unset GBRAIN_MCP_TOKEN`
-immediately. Token security trade-off documented in
-`setup-gbrain/memory.md`: brief argv exposure during `claude mcp add`,
-resting state in `~/.claude.json` mode 0600.
+The bearer token (`GBRAIN_MCP_TOKEN`) stays in process env until Step 5a
+registers it, then `unset GBRAIN_MCP_TOKEN` immediately. On Claude Code
+`claude mcp add --header` consumes it from argv, so it is briefly exposed
+there and rests in `~/.claude.json` mode 0600. On dsh nothing is consumed:
+the config file keeps a `${GBRAIN_MCP_TOKEN}` placeholder that dsh expands
+from the host environment at mount time. Both trade-offs are documented in
+`setup-gbrain/memory.md`.
 
 ### Switch (from detect's existing-engine state)
 

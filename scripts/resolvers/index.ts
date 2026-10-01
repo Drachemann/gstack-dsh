@@ -29,7 +29,7 @@ import { generateConfidenceCalibration } from './confidence';
 import { generateInvokeSkill, generateAutoplanReviewFile, generateAutoplanSnapshotTool, generateAutoplanPublicationHook } from './composition';
 import { generateReviewArmy } from './review-army';
 import { generateDxFramework } from './dx';
-import { generateGBrainContextLoad, generateGBrainSaveResults, generateBrainPreflight, generateBrainCacheRefresh, generateBrainWriteBack } from './gbrain';
+import { generateGBrainContextLoad, generateGBrainSaveResults, generateBrainPreflight, generateBrainCacheRefresh, generateBrainWriteBack, generateGBrainMcpRegister } from './gbrain';
 import { generateTasksSectionEmit, generateTasksSectionAggregate } from './tasks-section';
 import { SECTION, SECTION_INDEX } from './sections';
 import { generateRedactInvocationBlock } from './redact-doc';
@@ -140,6 +140,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   BRAIN_PREFLIGHT: generateBrainPreflight,
   BRAIN_CACHE_REFRESH: generateBrainCacheRefresh,
   BRAIN_WRITE_BACK: generateBrainWriteBack,
+  GBRAIN_MCP_REGISTER: generateGBrainMcpRegister,
   TASKS_SECTION_EMIT: generateTasksSectionEmit,
   TASKS_SECTION_AGGREGATE: generateTasksSectionAggregate,
   SECTION,

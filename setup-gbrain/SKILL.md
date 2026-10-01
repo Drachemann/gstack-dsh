@@ -377,17 +377,25 @@ Skills that run plan reviews (`/plan-*-review`, `/codex review`) include the EXI
 # /setup-gbrain — Coding-Agent Onboarding for gbrain
 
 You are setting up gbrain (https://github.com/garrytan/gbrain), a persistent
-knowledge base, on the user's local Mac so that this coding agent (typically
-Claude Code) can call it as both a CLI and an MCP tool.
+knowledge base, on the user's local machine so that this coding agent can call
+it as both a CLI and an MCP tool.
 
-**Scope honesty:** This skill's MCP registration step (5a) uses
-`claude mcp add` and targets Claude Code specifically. Other local hosts
-(Cursor, Codex CLI, etc.) will still get the gbrain CLI on PATH — they can
-register `gbrain serve` in their own MCP config manually after setup.
+**Scope honesty:** This skill's MCP registration step (5a) is rendered for the
+host this skill was installed for. On Claude Code it drives `claude mcp add`; on
+DeepSeek Harness (dsh) it writes the dsh MCP config layer directly
+(`$DSH_HOME/mcp.json`), because dsh has no `mcp add` verb. Other local hosts
+(Cursor, Codex CLI, etc.) still get the gbrain CLI on PATH and can register
+`gbrain serve` in their own MCP config manually after setup.
 
-**Audience:** local-Mac users. openclaw/hermes agents typically run in cloud
-docker containers with their own gbrain; "sharing" a brain between them and
-local Claude Code is only possible through shared Postgres (Supabase).
+**Audience:** local users. Two capability boundaries are worth stating up front
+rather than discovered late:
+
+- **Windows is not a supported host here.** The install and engine steps assume
+  a POSIX shell.
+- **A brain is per-machine unless it is a remote MCP endpoint.** openclaw/hermes
+  agents typically run in cloud docker containers with their own gbrain;
+  "sharing" a brain between them and this machine is only possible through
+  shared Postgres (Supabase) or a remote MCP URL.
 
 ## User-invocable
 When the user types `/setup-gbrain`, run this skill. Three shortcut modes:
@@ -524,7 +532,7 @@ Options (present based on detected state):
   whose openclaw/hermes provisioned one already. Paste the Session Pooler
   URL from the Supabase dashboard (Settings → Database → Connection Pooler
   → Session). *Trust-surface caveat to include in the prompt:* "Pasting this
-  URL gives your local Claude Code full read/write access to every page your
+  URL gives this machine's coding agent full read/write access to every page your
   cloud agent can see. If that's not the trust level you want, pick PGLite
   local instead and accept the brains are disjoint."
 - **2a — Supabase, auto-provision a new project.** You'll need a Supabase
@@ -532,7 +540,7 @@ Options (present based on detected state):
 - **2b — Supabase, create manually.** Walk through supabase.com signup
   yourself; paste the URL back when ready.
 - **3 — PGLite local.** Zero accounts, ~30 seconds. Isolated brain on this
-  Mac only. Best for try-first.
+  machine only. Best for try-first.
 - **4 — Remote gbrain MCP.** Someone else (or another machine of yours) is
   already running `gbrain serve` with HTTP transport. You paste the MCP URL
   + a bearer token; this skill registers it as your MCP. No local brain DB,
@@ -733,7 +741,8 @@ brain admin runs the printed command on the brain host instead. Skip to Step 7.5
 Then wire the artifacts repo into gbrain so its content is searchable from
 any gbrain client. The helper creates a `git worktree` of `~/.gstack/`,
 registers it as a federated source via `gbrain sources add --path
---federated`, and runs an initial `gbrain sync`. Local-Mac only.
+--federated`, and runs an initial `gbrain sync`. Local engine only — a remote
+brain has its own host to sync from.
 
 Capture the database URL out of `~/.gbrain/config.json` first and pass it
 explicitly so the wireup is robust against any other process rewriting
@@ -793,15 +802,15 @@ the post-Step-9 Search Guidance write live in the claude-md-persist section.
 ### Path 4 (Remote MCP)
 
 The `mcp__gbrain__*` tools aren't visible mid-session — they're loaded at
-Claude Code session start. So the live smoke test in this same skill run is
+session start. So the live smoke test in this same skill run is
 informational: print the curl-equivalent the user can run after restarting
-Claude Code. The verify round-trip in Step 4c already proved the server is
+this session. The verify round-trip in Step 4c already proved the server is
 reachable + authed + on a compatible MCP version, so we don't re-test that.
 
 Print to stdout:
 
 ```
-After restarting Claude Code, the `mcp__gbrain__*` tools become callable.
+After restarting this agent session, the `mcp__gbrain__*` tools become callable.
 Smoke test: ask the agent to run `mcp__gbrain__search` with any query
 ("test page" works). You should see a JSON list of pages.
 
@@ -901,7 +910,7 @@ or first-time-after-upgrade users.
 ## Step 10: GREEN/YELLOW/RED verdict block (idempotent doctor output)
 
 After Steps 1-9 complete, summarize. Re-running `/setup-gbrain` on a
-configured Mac is a first-class doctor path: every step detects existing
+configured machine is a first-class doctor path: every step detects existing
 state, repairs only what's missing, and reports here.
 
 ```bash
@@ -931,7 +940,7 @@ gbrain status: GREEN  (mode: remote-http)
   CLAUDE.md ....... OK
   Smoke test ...... INFO printed for post-restart manual verification
 
-Restart Claude Code to pick up the `mcp__gbrain__*` tools.
+Restart this agent session to pick up the `mcp__gbrain__*` tools.
 Re-run `/setup-gbrain` any time the bearer rotates or the URL moves.
 ```
 

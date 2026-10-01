@@ -9,15 +9,17 @@ Find-and-replace (or append) the section. Block format depends on mode:
 - Server version: gbrain v{SERVER_VERSION}  (from Step 4c verify)
 - Setup date: {today}
 - MCP registered: yes (user scope)
-- Token: stored in ~/.claude.json (do not commit; never written to CLAUDE.md)
+- Token: stored in the agent's own MCP config, not here (do not commit; never written to CLAUDE.md)
 - Artifacts repo: {gstack_artifacts_remote URL or "none"}
 - Artifacts sync: {off|artifacts-only|full}
 - Current repo policy: {read-write|read-only|deny|unset}
 ```
 
 The bearer token is **never** written to CLAUDE.md (CLAUDE.md is checked
-in to git in many projects). It lives only in `~/.claude.json` where
-`claude mcp add` placed it.
+in to git in many projects). It lives only in the agent's own MCP config:
+Claude Code stores it in `~/.claude.json`, while dsh keeps a `${VAR}`
+placeholder in `~/.dsh/mcp.json` and expands it from your shell environment
+at mount time, so the token never rests in a file at all.
 
 ### Paths 1, 2a, 2b, 3 (Local stdio)
 

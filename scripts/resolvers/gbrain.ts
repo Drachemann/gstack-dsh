@@ -270,3 +270,232 @@ eval "$(${ctx.paths.binDir}/gstack-slug 2>/dev/null)" 2>/dev/null || true
 ${invalidateBash || '  # (no per-skill invalidation targets configured)'}
 \`\`\``;
 }
+
+/** How this host registers an MCP server, as a name the skill prose can use. */
+function mcpHostLabel(host: string): string {
+  switch (host) {
+    case 'dsh':
+      return 'dsh';
+    case 'claude':
+      return 'Claude Code';
+    default:
+      return host;
+  }
+}
+
+/**
+ * Step 5a of /setup-gbrain — register gbrain as an MCP server for the host the
+ * skill was rendered for.
+ *
+ * Hosts differ in mechanism, not just in wording, so this is a resolver rather
+ * than prose the model must adapt:
+ *   - Claude Code has a real CLI verb (`claude mcp add`).
+ *   - DeepSeek Harness has a watched config *layer*, not a CLI. Its `dsh-mcp`
+ *     helper is unusable outside the DSH install tree (it fails to resolve its
+ *     own peer dependency), so the correct registration is a direct, validated
+ *     write to the user-scope JSON layer.
+ *   - Every other host keeps the historical "register it in your own config"
+ *     instruction.
+ */
+export function generateGBrainMcpRegister(ctx: TemplateContext): string {
+  if (ctx.host === 'dsh') return generateDshMcpRegister();
+
+  const label = mcpHostLabel(ctx.host);
+  return `## Step 5a: Register gbrain as ${label} MCP (D18)
+
+Only if \`which claude\` resolves. Ask: "Give ${label} a typed tool surface
+for gbrain? (recommended yes)"
+
+The registration form depends on the path picked in Step 2:
+
+### Path 4 (Remote MCP — HTTP transport with bearer)
+
+Tear down any prior registration (could be local-stdio from an old setup,
+or stale remote-http with a rotated token), then register with HTTP +
+bearer at user scope:
+
+\`\`\`bash
+claude mcp remove gbrain -s user 2>/dev/null || true
+claude mcp remove gbrain 2>/dev/null || true
+claude mcp add --scope user --transport http gbrain "$MCP_URL" \\
+  --header "Authorization: Bearer $GBRAIN_MCP_TOKEN"
+unset GBRAIN_MCP_TOKEN  # zero from process env after registration
+claude mcp list | grep gbrain  # verify: should show "✓ Connected"
+\`\`\`
+
+**Token-storage note:** \`claude mcp add --header "Authorization: Bearer ..."\`
+puts the bearer on argv during process startup, briefly visible to \`ps\` for
+~10ms. The token's resting state is \`~/.claude.json\` (mode 0600 — Claude
+Code's own credential surface for every MCP server). This trade-off is
+documented in \`setup-gbrain/memory.md\`. If a future Claude Code release adds
+a stdin or env-var input form for headers, switch to that.
+
+### Paths 1, 2a, 2b, 3 (Local stdio)
+
+Register at **user scope** with an **absolute path** to the gbrain
+binary. User scope makes the MCP available in every Claude Code session on
+this machine, not just the current workspace. Absolute path avoids PATH
+resolution issues when Claude Code spawns \`gbrain serve\` as a subprocess.
+
+\`\`\`bash
+GBRAIN_BIN=$(command -v gbrain)
+[ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
+claude mcp remove gbrain -s user 2>/dev/null || true
+claude mcp remove gbrain 2>/dev/null || true
+claude mcp add --scope user gbrain -- "$GBRAIN_BIN" serve
+claude mcp list | grep gbrain  # verify: should show "✓ Connected"
+\`\`\`
+
+### Both paths
+
+If \`claude\` is not on PATH: emit "MCP registration skipped — this skill is
+Claude-Code-targeted; register \`gbrain serve\` (or your remote MCP URL) in
+your agent's MCP config manually." Continue to step 6.
+
+**Heads-up for the user:** an already-open Claude Code session will not
+pick up the new MCP tools until restart. Tell them: "Restart any open
+Claude Code sessions to see \`mcp__gbrain__*\` tools — they're loaded at
+session start, not mid-session."`;
+}
+
+/**
+ * The dsh registration block.
+ *
+ * Facts this block is built on, each verified against the installed plugin:
+ *   - dsh mounts MCP servers from a *layered config*, and a live watcher
+ *     hot-reloads it, so registration is a file write, not a CLI verb.
+ *   - The `dsh-mcp` helper cannot run here: it loads the MCP client, whose
+ *     `@deepseek-ai/dsh-scope` peer only resolves inside the DSH install tree,
+ *     so `dsh-mcp` is not on PATH and `node lib/cli.js` aborts with
+ *     ERR_MODULE_NOT_FOUND. Never shell out to it.
+ *   - User-scope JSON lives at \`$DSH_HOME/mcp.json\` (default \`~/.dsh/mcp.json\`)
+ *     and is read as \`{"mcpServers": {...}}\`.
+ *   - \`${'${VAR}'}\` placeholders are kept literal on disk and expanded from the
+ *     host environment at mount time, including inside \`headers\`, so a bearer
+ *     token never has to rest in the file.
+ *   - Shadowing is silent: a same-named entry in ANY higher layer
+ *     (\`.dsh/mcp.yml\`, \`.dsh/mcp.json\`, legacy \`.mcp.json\`, a profile file, or
+ *     \`~/.dsh/mcp.yml\`) drops this one with no error. Verification has to prove
+ *     the entry survived, not just that it was written.
+ */
+function generateDshMcpRegister(): string {
+  return `## Step 5a: Register gbrain as a dsh MCP server (D18)
+
+Ask: "Give this dsh session a typed tool surface for gbrain? (recommended yes)"
+
+dsh has **no \`mcp add\` verb**. It mounts MCP servers from a layered config that
+a live watcher picks up, so registration is a validated write to
+\`$DSH_HOME/mcp.json\` (default \`~/.dsh/mcp.json\`) — *user scope*, so every dsh
+project on this machine sees the brain. Project scope would be
+\`<projectRoot>/.dsh/mcp.json\`.
+
+**Do NOT shell out to \`dsh-mcp\`.** It is not on PATH, and running its \`cli.js\`
+directly aborts with \`ERR_MODULE_NOT_FOUND: @deepseek-ai/dsh-scope\`, because
+that peer dependency only resolves inside the DSH install tree. Write the file.
+
+Never hand-edit the JSON: a syntax error (comment, trailing comma) or a
+non-object \`mcpServers\` discards the **entire layer** with no error at all.
+The block below parses first and refuses to write anything it could not read.
+
+### Path 4 (Remote MCP — HTTP transport with bearer)
+
+The bearer is written as a \`\${GBRAIN_MCP_TOKEN}\` placeholder and expanded by
+dsh at mount time from the host environment — the token stays in your shell
+profile and never rests in the config file.
+
+\`\`\`bash
+DSH_MCP_JSON="\${DSH_HOME:-$HOME/.dsh}/mcp.json"
+mkdir -p "$(dirname "$DSH_MCP_JSON")"
+DSH_MCP_JSON="$DSH_MCP_JSON" GBRAIN_MCP_URL="$MCP_URL" node --input-type=module -e '
+import { readFileSync, writeFileSync } from "node:fs";
+const p = process.env.DSH_MCP_JSON;
+let doc = {};
+try {
+  const raw = readFileSync(p, "utf8").trim();
+  if (raw) doc = JSON.parse(raw);
+} catch (err) {
+  console.error("refusing to overwrite " + p + " — it is not valid JSON: " + err.message);
+  process.exit(1);
+}
+if (doc === null || typeof doc !== "object" || Array.isArray(doc)) {
+  console.error("refusing to overwrite " + p + " — top level must be a JSON object");
+  process.exit(1);
+}
+const servers = (doc.mcpServers && typeof doc.mcpServers === "object" && !Array.isArray(doc.mcpServers)) ? doc.mcpServers : {};
+servers.gbrain = {
+  type: "http",
+  url: process.env.GBRAIN_MCP_URL,
+  headers: { Authorization: "Bearer \${GBRAIN_MCP_TOKEN}" }
+};
+doc.mcpServers = servers;
+writeFileSync(p, JSON.stringify(doc, null, 2) + "\\n");
+console.log("registered gbrain (http) in " + p);
+'
+\`\`\`
+
+Export \`GBRAIN_MCP_TOKEN\` in your shell profile (not here, and not in the
+config file) so dsh can expand it at mount time.
+
+### Paths 1, 2a, 2b, 3 (Local stdio)
+
+Absolute path, user scope. dsh spawns the server itself, so a bare \`gbrain\`
+would depend on the PATH dsh inherited rather than the PATH you have now.
+
+\`\`\`bash
+DSH_MCP_JSON="\${DSH_HOME:-$HOME/.dsh}/mcp.json"
+GBRAIN_BIN=$(command -v gbrain)
+[ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
+mkdir -p "$(dirname "$DSH_MCP_JSON")"
+DSH_MCP_JSON="$DSH_MCP_JSON" GBRAIN_BIN="$GBRAIN_BIN" node --input-type=module -e '
+import { readFileSync, writeFileSync } from "node:fs";
+const p = process.env.DSH_MCP_JSON;
+let doc = {};
+try {
+  const raw = readFileSync(p, "utf8").trim();
+  if (raw) doc = JSON.parse(raw);
+} catch (err) {
+  console.error("refusing to overwrite " + p + " — it is not valid JSON: " + err.message);
+  process.exit(1);
+}
+if (doc === null || typeof doc !== "object" || Array.isArray(doc)) {
+  console.error("refusing to overwrite " + p + " — top level must be a JSON object");
+  process.exit(1);
+}
+const servers = (doc.mcpServers && typeof doc.mcpServers === "object" && !Array.isArray(doc.mcpServers)) ? doc.mcpServers : {};
+servers.gbrain = { type: "stdio", command: process.env.GBRAIN_BIN, args: ["serve"] };
+doc.mcpServers = servers;
+writeFileSync(p, JSON.stringify(doc, null, 2) + "\\n");
+console.log("registered gbrain (stdio) in " + p);
+'
+\`\`\`
+
+### Both paths — verify, then restart
+
+\`\`\`bash
+DSH_MCP_JSON="\${DSH_HOME:-$HOME/.dsh}/mcp.json"
+node -e '
+const doc = JSON.parse(require("node:fs").readFileSync(process.env.DSH_MCP_JSON, "utf8"));
+const row = doc.mcpServers && doc.mcpServers.gbrain;
+console.log(row ? "gbrain entry: " + JSON.stringify({ type: row.type, url: row.url, command: row.command, args: row.args }) : "gbrain entry: MISSING");
+'
+# Shadow check — dsh drops a shadowed entry with no error, so prove none exists.
+for f in "$(git rev-parse --show-toplevel 2>/dev/null)/.dsh/mcp.yml" \\
+         "$(git rev-parse --show-toplevel 2>/dev/null)/.dsh/mcp.json" \\
+         "$(git rev-parse --show-toplevel 2>/dev/null)/.mcp.json" \\
+         "\${DSH_HOME:-$HOME/.dsh}/mcp.yml"; do
+  [ -f "$f" ] && grep -l 'gbrain' "$f" 2>/dev/null && echo "SHADOWS the user-scope entry: $f"
+done
+# dsh's own reconciliation record: mounted / unhealthy / skippedByReason.
+[ -f "\${DSH_HOME:-$HOME/.dsh}/.mcp-diag.json" ] && cat "\${DSH_HOME:-$HOME/.dsh}/.mcp-diag.json"
+\`\`\`
+
+A \`gbrain\` row that is **missing** from the file is a failed write — stop.
+A row that is present but never appears in \`.mcp-diag.json\` as mounted means a
+higher layer shadowed it (the loop above names the file) or the server failed to
+start (the diag record carries the reason). Report which.
+
+**Heads-up for the user:** dsh watches the MCP layer, so a running session picks
+the server up without a full restart — but the *tool list* is resolved per
+session, so tell them: "Restart this dsh session to see the \`gbrain\` MCP tools
+in the model's tool list."`;
+}
