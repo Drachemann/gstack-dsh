@@ -21,7 +21,7 @@ Usage: ./setup [options]
 
 Options:
   --host <name>     Install for a specific host (claude, codex, kiro, factory,
-                    opencode, openclaw, hermes, gbrain, auto). Default: claude.
+                    opencode, openclaw, hermes, gbrain, dsh, auto). Default: claude.
   --model <id>      Codex model profile override. Otherwise reads Codex config.
   --global          Register Codex globally even from a project-vendored source.
   --prefix          Install skills with the gstack- prefix (e.g. /gstack-review).
@@ -67,7 +67,7 @@ MODEL_OVERRIDE=""
 MODEL_OVERRIDE_SET=0
 while [ $# -gt 0 ]; do
   case "$1" in
-    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, slate, openclaw, hermes, gbrain, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
+    --host) [ -z "$2" ] && echo "Missing value for --host (expected claude, codex, kiro, factory, opencode, cursor, slate, openclaw, hermes, gbrain, dsh, or auto)" >&2 && exit 1; HOST="$2"; shift 2 ;;
     --host=*) HOST="${1#--host=}"; shift ;;
     --model) [ -z "$2" ] && echo "Missing value for --model" >&2 && exit 1; MODEL_OVERRIDE="$2"; MODEL_OVERRIDE_SET=1; shift 2 ;;
     --model=*) MODEL_OVERRIDE="${1#--model=}"; MODEL_OVERRIDE_SET=1; shift ;;
@@ -106,7 +106,7 @@ print_instruction_tier() {
 }
 
 case "$HOST" in
-  claude|codex|kiro|factory|opencode|cursor|auto) ;;
+  claude|codex|kiro|factory|opencode|cursor|dsh|auto) ;;
   slate)
     echo ""
     echo "Slate is not yet a first-class install target (docs/designs/SLATE_HOST.md —"
@@ -151,7 +151,7 @@ case "$HOST" in
     echo "GBrain setup and brain skills ship from the GBrain repo."
     echo ""
     exit 0 ;;
-  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, cursor, slate, openclaw, hermes, gbrain, or auto)" >&2; exit 1 ;;
+  *) echo "Unknown --host value: $HOST (expected claude, codex, kiro, factory, opencode, cursor, slate, openclaw, hermes, gbrain, dsh, or auto)" >&2; exit 1 ;;
 esac
 
 if ! command -v bun >/dev/null 2>&1; then
@@ -178,6 +178,15 @@ OPENCODE_GSTACK="$OPENCODE_SKILLS/gstack"
 CURSOR_SKILLS="$HOME/.cursor/skills"
 CURSOR_GSTACK="$CURSOR_SKILLS/gstack"
 KIRO_SKILLS="$HOME/.kiro/skills"
+# dsh resolves its user skill root as <dshHome>/skills (provider source
+# `user-dsh`, rank 400) and its project root as <projectRoot>/.dsh/skills
+# (rank 100). DSH_HOME defaults to ~/.dsh; honor an explicit override the same
+# way the Harness's own home-path resolution does.
+DSH_HOME_DIR="${DSH_HOME:-$HOME/.dsh}"
+DSH_SKILLS="$DSH_HOME_DIR/skills"
+DSH_GSTACK="$DSH_SKILLS/gstack"
+DSH_RENDER="$INSTALL_GSTACK_DIR/.dsh/skills"
+DSH_RENDER_GSTACK="$DSH_RENDER/gstack"
 
 SKILLS_BASENAME="$(basename "$INSTALL_SKILLS_DIR")"
 SKILLS_PARENT_BASENAME="$(basename "$(dirname "$INSTALL_SKILLS_DIR")")"
@@ -692,6 +701,7 @@ INSTALL_KIRO=0
 INSTALL_FACTORY=0
 INSTALL_OPENCODE=0
 INSTALL_CURSOR=0
+INSTALL_DSH=0
 if [ "$HOST" = "auto" ]; then
   command -v claude >/dev/null 2>&1 && INSTALL_CLAUDE=1
   command -v codex >/dev/null 2>&1 && INSTALL_CODEX=1
@@ -702,8 +712,9 @@ if [ "$HOST" = "auto" ]; then
   # reliable footprint of an installed Cursor IDE.
   command -v cursor >/dev/null 2>&1 && INSTALL_CURSOR=1
   [ -d "$HOME/.cursor" ] && INSTALL_CURSOR=1
+  command -v dsh >/dev/null 2>&1 && INSTALL_DSH=1
   # If none found, default to claude
-  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ]; then
+  if [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_DSH" -eq 0 ]; then
     INSTALL_CLAUDE=1
   fi
 elif [ "$HOST" = "claude" ]; then
@@ -718,13 +729,15 @@ elif [ "$HOST" = "opencode" ]; then
   INSTALL_OPENCODE=1
 elif [ "$HOST" = "cursor" ]; then
   INSTALL_CURSOR=1
+elif [ "$HOST" = "dsh" ]; then
+  INSTALL_DSH=1
 fi
 
 # A host that passes --host validation but sets no INSTALL_* flag would
 # silently configure nothing and exit 0 (the #2361 slate failure class).
 # Fail loudly if a future host lands in the accept-list without a dispatch arm.
-if [ "$HOST" != "auto" ] && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ]; then
-  echo "Error: no install arm exists for host '$HOST' — it passed --host validation but sets no INSTALL_* flag, so setup would configure nothing and exit 0. This is a setup bug. Valid install targets: claude, codex, kiro, factory, opencode, cursor (informational: slate, openclaw, hermes, gbrain)." >&2
+if [ "$HOST" != "auto" ] && [ "$INSTALL_CLAUDE" -eq 0 ] && [ "$INSTALL_CODEX" -eq 0 ] && [ "$INSTALL_KIRO" -eq 0 ] && [ "$INSTALL_FACTORY" -eq 0 ] && [ "$INSTALL_OPENCODE" -eq 0 ] && [ "$INSTALL_CURSOR" -eq 0 ] && [ "$INSTALL_DSH" -eq 0 ]; then
+  echo "Error: no install arm exists for host '$HOST' — it passed --host validation but sets no INSTALL_* flag, so setup would configure nothing and exit 0. This is a setup bug. Valid install targets: claude, codex, kiro, factory, opencode, cursor, dsh (informational: slate, openclaw, hermes, gbrain)." >&2
   exit 1
 fi
 
@@ -2057,6 +2070,74 @@ create_factory_runtime_root() {
   fi
 }
 
+# ─── Helper: build the dsh runtime root ──────────────────────────────────────
+# On dsh, rendering skills is NOT an install. Every skill's preamble resolves
+# `GSTACK_ROOT` and then calls `$GSTACK_ROOT/bin/*`; the render only writes
+# SKILL.md files, so a bare render tree leaves all of those calls failing and
+# every skill silently degraded. This helper makes one skills root usable.
+#
+# dsh discovers skills exactly one level deep (`<root>/<name>/SKILL.md`), so a
+# single directory can hold the rendered router skill at depth 1 *and* the asset
+# paths the skills reference, with no nested skill double-discovered. That is
+# what makes the layout below legal — on Codex it would be a duplicate-skill bug.
+#
+# $1 = gstack source checkout
+# $2 = destination runtime root (`<skills root>/gstack`)
+# $3 = the render tree this root serves (`<skills root>`); only used to supply
+#      the rendered router skill when the destination does not already own one
+create_dsh_runtime_root() {
+  local gstack_dir="$1"
+  local dsh_gstack="$2"
+  local dsh_render="$3"
+  local entry
+
+  mkdir -p "$dsh_gstack"
+
+  # Keep in sync with hosts/dsh.ts runtimeRoot.globalSymlinks — that list is the
+  # canonical copy (`host-config-export.ts symlinks dsh` prints it), and this
+  # loop is its executable twin. The set is the observed `$GSTACK_ROOT/<path>`
+  # corpus plus supabase/, which bin/gstack-telemetry-sync reads through the root.
+  for entry in bin lib browse design docs scripts review ship \
+               plan-eng-review plan-design-review plan-devex-review \
+               design-html office-hours gstack-upgrade supabase; do
+    [ -e "$gstack_dir/$entry" ] || continue
+    rm -rf "$dsh_gstack/$entry"
+    _link_or_copy "$gstack_dir/$entry" "$dsh_gstack/$entry"
+  done
+  if [ -f "$gstack_dir/ETHOS.md" ]; then
+    rm -f "$dsh_gstack/ETHOS.md"
+    _link_or_copy "$gstack_dir/ETHOS.md" "$dsh_gstack/ETHOS.md"
+  fi
+
+  # The router skill. A project-local runtime root already holds the rendered
+  # `gstack/SKILL.md` the render wrote in place; a fresh global root takes the
+  # render tree's copy.
+  if [ ! -f "$dsh_gstack/SKILL.md" ] && [ -f "$dsh_render/gstack/SKILL.md" ]; then
+    _link_or_copy "$dsh_render/gstack/SKILL.md" "$dsh_gstack/SKILL.md"
+  fi
+}
+
+# Link the rendered dsh skills into a skills root, leaving any pre-existing
+# non-gstack entry alone (same ownership split codex/factory use).
+# $1 = render tree, $2 = destination skills root
+link_dsh_skill_dirs() {
+  local dsh_render="$1"
+  local dsh_skills="$2"
+  local entry name
+
+  mkdir -p "$dsh_skills"
+  for entry in "$dsh_render"/gstack-*; do
+    [ -d "$entry" ] || continue
+    name="$(basename "$entry")"
+    if _sidecar_root_user_owned "$dsh_skills/$name"; then
+      echo "  left in place (existing dir not gstack-managed): $dsh_skills/$name" >&2
+      continue
+    fi
+    rm -rf "$dsh_skills/$name"
+    _link_or_copy "$entry" "$dsh_skills/$name"
+  done
+}
+
 create_opencode_runtime_root() {
   local gstack_dir="$1"
   local opencode_gstack="$2"
@@ -2669,6 +2750,43 @@ if [ "$INSTALL_CURSOR" -eq 1 ]; then
   echo "  cursor skills: $CURSOR_SKILLS"
 fi
 
+# 6e. Install for DeepSeek Harness
+# Two installs, because dsh has two skill roots and the preamble probes both:
+#   - the project-local root (<projectRoot>/.dsh/skills, provider rank 100),
+#     which the preamble prefers only when the probe file exists there;
+#   - the user root (<dshHome>/skills, provider rank 400), which makes gstack
+#     available in every dsh project.
+# Rendering alone produces SKILL.md files and no runtime assets, so both roots
+# get a runtime root built by create_dsh_runtime_root. Skipping either one is the
+# failure this arm exists to prevent: the skills load, then every one of their
+# `$GSTACK_ROOT/bin/*` calls fails.
+if [ "$INSTALL_DSH" -eq 1 ]; then
+  ( cd "$SOURCE_GSTACK_DIR" && bun_cmd run gen:skill-docs --host dsh ) || {
+    echo "Error: dsh skill render failed; leaving the previous render in place." >&2
+    exit 1
+  }
+
+  # Project-local: the source checkout renders into its own .dsh/skills, and the
+  # preamble's local probe (bin/gstack-skill-start) must resolve there.
+  create_dsh_runtime_root "$SOURCE_GSTACK_DIR" "$DSH_RENDER_GSTACK" "$DSH_RENDER"
+
+  # Global: every other project on this machine.
+  mkdir -p "$DSH_SKILLS"
+  create_dsh_runtime_root "$SOURCE_GSTACK_DIR" "$DSH_GSTACK" "$DSH_RENDER"
+  link_dsh_skill_dirs "$DSH_RENDER" "$DSH_SKILLS"
+  # Drop global links whose skill no longer exists in the render tree. Same
+  # ownership split as every other host: a symlink that resolves into gstack is
+  # ours to remove, a foreign directory is never touched.
+  _prune_stale_generated "$SOURCE_GSTACK_DIR" "$DSH_RENDER" "$DSH_SKILLS"
+
+  echo "gstack ready (dsh)."
+  echo "  browse: $BROWSE_BIN"
+  _browser_hint
+  echo "  project skills: $DSH_RENDER"
+  echo "  global skills:  $DSH_SKILLS"
+  echo "  mcp servers:    dsh mounts \$DSH_HOME/mcp.yml or .dsh/mcp.yml — run /gstack-setup-gbrain to register gbrain there"
+fi
+
 # 7. Create .agents/ sidecar symlinks for the real Codex skill target.
 # The root Codex skill ends up pointing at $SOURCE_GSTACK_DIR/.agents/skills/gstack,
 # so the runtime assets must live there for both global and repo-local installs.
@@ -2882,7 +3000,12 @@ if [ -x "$DETECT_BIN" ]; then
     # detection (exit 0 iff ok), so setup, bin/dev-setup, and gstack-config
     # all gate on the same check instead of re-grepping the JSON.
     if "$DETECT_BIN" --is-ok 2>/dev/null; then
-      if [ -n "${GSTACK_SKIP_GBRAIN_REGEN:-}" ]; then
+      if [ "$INSTALL_CLAUDE" -eq 0 ]; then
+        # Every other host decides at render time whether brain blocks appear,
+        # and there is no shared Claude render dir to refresh. Saying nothing
+        # here is right: the host's own render already carries what it wants.
+        log "gbrain detected — brain-aware blocks for this host came from its own render (no Claude render dir to refresh)."
+      elif [ -n "${GSTACK_SKIP_GBRAIN_REGEN:-}" ]; then
         # Dev/source tree (set by bin/dev-setup): detection is persisted
         # above; the dev workspace renders the :user variant into its own
         # untracked dir (.claude/gstack-rendered), and other projects get
@@ -2919,14 +3042,23 @@ if [ -x "$DETECT_BIN" ]; then
         fi
       fi
     else
-      log "gbrain not detected — brain-aware blocks suppressed in planning-skill SKILL.md files (zero token overhead)."
-      log "  To enable: install gbrain via /setup-gbrain, then re-run ./setup or 'gstack-config gbrain-refresh'."
-      # A render from a previous gbrain install would shadow canonical files
-      # on the next link/relink — drop it and restore canonical links.
-      if [ -d "$_GSTACK_RENDER_DIR" ] && [ -z "${GSTACK_SKIP_GBRAIN_REGEN:-}" ]; then
-        rm -rf "$_GSTACK_RENDER_DIR"
-        if [ "${_CLAUDE_SKILLS_LINKED:-0}" -eq 1 ]; then
-          link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR" >/dev/null
+      if [ "$INSTALL_CLAUDE" -eq 0 ]; then
+        # Non-Claude hosts render brain blocks from their own config, so a
+        # missing brain changes behaviour, not the skill bytes. Crucially, do
+        # NOT touch $_GSTACK_RENDER_DIR here: it belongs to the Claude install,
+        # and this run is not allowed to break one.
+        log "gbrain not detected — brain-aware blocks stay in place and degrade to 'proceed without brain context'."
+        log "  To enable: install gbrain via /gstack-setup-gbrain, then re-run ./setup."
+      else
+        log "gbrain not detected — brain-aware blocks suppressed in planning-skill SKILL.md files (zero token overhead)."
+        log "  To enable: install gbrain via /setup-gbrain, then re-run ./setup or 'gstack-config gbrain-refresh'."
+        # A render from a previous gbrain install would shadow canonical files
+        # on the next link/relink — drop it and restore canonical links.
+        if [ -d "$_GSTACK_RENDER_DIR" ] && [ -z "${GSTACK_SKIP_GBRAIN_REGEN:-}" ]; then
+          rm -rf "$_GSTACK_RENDER_DIR"
+          if [ "${_CLAUDE_SKILLS_LINKED:-0}" -eq 1 ]; then
+            link_claude_skill_dirs "$SOURCE_GSTACK_DIR" "$INSTALL_SKILLS_DIR" >/dev/null
+          fi
         fi
       fi
     fi
@@ -2969,13 +3101,16 @@ fi
 PLAN_TUNE_INSTALL_MARKER="$HOME/.gstack/.plan-tune-hooks-prompted"
 
 # Canonical-only: an ephemeral tree with no stable install gets a visible skip,
-# never a baked worktree path.
-if [ "$NO_TEAM_MODE" -ne 1 ] && [ -x "$SETTINGS_HOOK" ] \
+# never a baked worktree path. Claude-only: these hooks live in
+# ~/.claude/settings.json, so a non-Claude install must neither register them
+# nor report on them.
+if [ "$INSTALL_CLAUDE" -eq 1 ] && [ "$NO_TEAM_MODE" -ne 1 ] && [ -x "$SETTINGS_HOOK" ] \
    && { [ -z "$PLAN_TUNE_LOG_HOOK" ] || [ -z "$PLAN_TUNE_PREF_HOOK" ]; }; then
   log "  AskUserQuestion hooks not registered: hooks missing at $CANONICAL_GSTACK_ROOT (no stable install)"
 fi
 
-if [ "$NO_TEAM_MODE" -ne 1 ] \
+if [ "$INSTALL_CLAUDE" -eq 1 ] \
+   && [ "$NO_TEAM_MODE" -ne 1 ] \
    && [ -x "$SETTINGS_HOOK" ] \
    && [ -n "$PLAN_TUNE_LOG_HOOK" ] \
    && [ -n "$PLAN_TUNE_PREF_HOOK" ]; then
