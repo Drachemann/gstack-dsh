@@ -2101,10 +2101,16 @@ create_dsh_runtime_root() {
   # source spelled `$HOME/.claude/...` rather than `~/.claude/...`. The second
   # form bypasses $GSTACK_ROOT (and the project-local override with it) — that is
   # how `freeze` was missed and `/unfreeze` failed with exit 127.
+  #
+  # `careful` is in the set for the same runtime reason, not for its frontmatter
+  # hooks (dsh drops those): `freeze/bin/freeze-state.sh` — invoked directly by
+  # /gstack-freeze — sources `../../careful/bin/hook-extract.sh`, so without this
+  # entry a copy-based runtime root breaks freeze/unfreeze/guard. A symlink root
+  # only worked because `..` resolved back through the `freeze` symlink.
   for entry in bin lib browse design make-pdf docs scripts review ship \
                plan-eng-review plan-design-review plan-devex-review \
                design-html office-hours gstack-upgrade supabase \
-               freeze extension VERSION; do
+               freeze careful extension VERSION; do
     [ -e "$gstack_dir/$entry" ] || continue
     rm -rf "$dsh_gstack/$entry"
     _link_or_copy "$gstack_dir/$entry" "$dsh_gstack/$entry"
@@ -2794,8 +2800,19 @@ if [ "$INSTALL_DSH" -eq 1 ]; then
   echo "gstack ready (dsh)."
   echo "  browse: $BROWSE_BIN"
   _browser_hint
-  echo "  project skills: $DSH_RENDER"
-  echo "  global skills:  $DSH_SKILLS"
+  # The dsh install is USER-scoped by design: $DSH_SKILLS (= $DSH_HOME/skills) is
+  # the root every dsh project resolves, at provider rank 400. The project-local
+  # runtime root below belongs to the SOURCE CHECKOUT's own self-hosted render
+  # tree, never to the invoking project — labelling it "project skills" read as
+  # "installed into my project" when setup ran from a foreign repo, which the dsh
+  # arm never does.
+  echo "  dsh skills (user-scoped, every project): $DSH_SKILLS"
+  echo "  checkout runtime root (self-hosted, not the invoking project): $DSH_RENDER_GSTACK"
+  if [ "$(pwd -P 2>/dev/null || pwd)" = "$SOURCE_GSTACK_DIR" ]; then
+    echo "  invoked from the gstack checkout: its own project-local runtime root was refreshed too"
+  else
+    echo "  invoked from: $PWD — nothing was written into that project (dsh installs are user-scoped)"
+  fi
   echo "  mcp servers:    dsh mounts \$DSH_HOME/mcp.yml or .dsh/mcp.yml — run /gstack-setup-gbrain to register gbrain there"
 fi
 

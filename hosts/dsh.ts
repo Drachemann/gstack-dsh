@@ -170,10 +170,18 @@ const dsh = defineHost({
   // override with it), which is how `freeze` and `extension` were missed on the
   // first pass and `/unfreeze` failed with exit 127.
   //
-  // Two deliberately absent entries: `.git` (gstack-upgrade probes for it, but
-  // its `elif` chain is written for a non-git runtime root — linking the source
+  // One deliberately absent entry: `.git` (gstack-upgrade probes for it, but its
+  // `elif` chain is written for a non-git runtime root — linking the source
   // checkout's `.git` in would let an upgrade mutate the plugin's own git
-  // state) and `careful` (only reached from frontmatter hooks, which dsh drops).
+  // state). `careful` is NOT one of these. It was previously left out on the
+  // reasoning that its assets are reached only from frontmatter hooks, which
+  // dsh drops — but `careful/bin/hook-extract.sh` is also the shared JSON helper
+  // `freeze/bin` sources at runtime, and `/gstack-freeze` calls
+  // `freeze/bin/freeze-state.sh` directly (not through a hook). That script
+  // sources `../../careful/bin/hook-extract.sh` under `set -euo pipefail`, so a
+  // copy-based install breaks /gstack-freeze, /gstack-unfreeze and /gstack-guard.
+  // A symlink install only appeared to work because `..` resolved back through
+  // the `freeze` symlink into the checkout.
   runtimeRoot: {
     globalSymlinks: [
       'bin',
@@ -197,6 +205,10 @@ const dsh = defineHost({
       'gstack-upgrade',
       'supabase',
       'freeze',
+      // Not hook-only: the shared JSON extractor `freeze/bin/*` sources at
+      // runtime (see the header note above). Omitted, `/gstack-freeze` dies on a
+      // copy-based install.
+      'careful',
       'extension',
       'VERSION',
       'ETHOS.md',

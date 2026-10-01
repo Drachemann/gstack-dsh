@@ -16,8 +16,9 @@ anything.
 ```
 $ ./setup --host dsh
 gstack ready (dsh).
-  project skills: <repo>/.dsh/skills
-  global skills:  /home/you/.dsh/skills
+  dsh skills (user-scoped, every project): /home/you/.dsh/skills
+  checkout runtime root (self-hosted, not the invoking project): <checkout>/.dsh/skills/gstack
+  invoked from: <your project> — nothing was written into that project (dsh installs are user-scoped)
   mcp servers:    dsh mounts $DSH_HOME/mcp.yml or .dsh/mcp.yml — run /gstack-setup-gbrain to register gbrain there
 ```
 
