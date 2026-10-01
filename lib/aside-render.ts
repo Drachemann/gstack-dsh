@@ -295,10 +295,10 @@ export function serveDir(root: string, nonce: string = randomBytes(16).toString(
 
 // ─── Async spawn (keeps the loopback server's event loop free) ────────────────
 
-async function runProc(cmd: string, args: string[], timeoutMs: number): Promise<{ code: number | null; stdout: string; stderr: string; error?: string }> {
+async function runProc(cmd: string, args: string[], timeoutMs: number, env?: Record<string, string | undefined>): Promise<{ code: number | null; stdout: string; stderr: string; error?: string }> {
   let child: ReturnType<typeof Bun.spawn>;
   try {
-    child = Bun.spawn([cmd, ...args], { stdout: 'pipe', stderr: 'pipe', stdin: 'ignore' });
+    child = Bun.spawn([cmd, ...args], { stdout: 'pipe', stderr: 'pipe', stdin: 'ignore', ...(env ? { env } : {}) });
   } catch (e) {
     return { code: null, stdout: '', stderr: '', error: (e as Error).message };
   }
@@ -472,16 +472,68 @@ function screenshotName(i: number, step: ScreenshotStep): string {
 }
 
 /**
+ * Env overrides for one render's child CLI calls. `stateFile` is the isolated
+ * daemon's state file, when this render owns that daemon (see the retry in
+ * `renderWithBrowse`); the shared daemon must outlive the render.
+ */
+interface BrowseDaemonTarget {
+  env?: Record<string, string | undefined>;
+  stateFile?: string;
+}
+
+/** The daemon's refusal when it has imported cookies and the page origin is not one of them. */
+const COOKIE_BLOCKED = /imported cookies and blocks page JS/;
+
+/**
  * Run a RenderSpec through the browse daemon. Same loopback server as the
  * Aside path, one CLI call per action, artifacts staged under /tmp and copied
  * to the caller's paths. The tab is closed in a finally; the daemon stays up.
+ *
+ * A daemon that imported cookies (`$B cookie-import`) refuses page JS on every
+ * other origin, 127.0.0.1 included, so a `waitFor`/`eval`-bearing spec (every
+ * /diagram and /make-pdf markdown render: make-pdf's diagram pre-pass waits on
+ * `#done`) can never settle there. Restarting that daemon would discard the
+ * user's imported logins — browse never does that without explicit consent
+ * (#2219) — so the spec is retried once on a throwaway daemon with its own
+ * state file + Chromium profile, and the user's daemon is left untouched.
  */
 export async function renderWithBrowse(spec: RenderSpec, bin: string | null = resolveBrowseBin()): Promise<RenderResult> {
+  if (!bin) return { ok: false, engine: 'browse', outputs: [], evals: {}, stdout: '', error: `${NO_BROWSER}: ${NO_BROWSER_HELP}` };
+  const first = await renderWithBrowseOnDaemon(spec, bin);
+  if (first.ok || !COOKIE_BLOCKED.test(first.error ?? '')) return first;
+
+  const scratch = fs.mkdtempSync(path.join(SAFE_TMP_DIR, 'gstack-render-daemon-'));
+  const stateFile = path.join(scratch, 'browse.json');
+  const note = `[the project daemon has imported cookies and blocks page JS on 127.0.0.1 — retried on a throwaway daemon instead of asking for \`$B stop\`]\n[first attempt: ${first.error}]`;
+  try {
+    const retry = await renderWithBrowseOnDaemon(spec, bin, {
+      env: {
+        ...process.env,
+        BROWSE_STATE_FILE: stateFile,
+        CHROMIUM_PROFILE: path.join(scratch, 'chromium-profile'),
+      },
+      stateFile,
+    });
+    return { ...retry, stdout: `${note}\n${retry.stdout}` };
+  } finally {
+    // The throwaway daemon is stopped (and waited on) inside the render, so
+    // this sweep is final; the second pass covers a flush that raced it.
+    for (let i = 0; i < 2 && fs.existsSync(scratch); i++) {
+      fs.rmSync(scratch, { recursive: true, force: true });
+      if (fs.existsSync(scratch)) await Bun.sleep(250);
+    }
+  }
+}
+
+async function renderWithBrowseOnDaemon(
+  spec: RenderSpec,
+  bin: string,
+  target: BrowseDaemonTarget = {},
+): Promise<RenderResult> {
   const outputs: string[] = [];
   const evals: Record<number, string> = {};
   const log: string[] = [];
   const fail = (error: string): RenderResult => ({ ok: false, engine: 'browse', outputs, evals, stdout: log.join('\n'), error });
-  if (!bin) return fail(`${NO_BROWSER}: ${NO_BROWSER_HELP}`);
   const file = path.resolve(spec.file);
   if (!fs.existsSync(file)) return fail(`HTML file not found: ${file}`);
   const root = path.resolve(spec.serveRoot ?? path.dirname(file));
@@ -490,7 +542,7 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
 
   const deadline = Date.now() + (spec.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   const run = async (args: string[]): Promise<string> => {
-    const r = await runProc(bin, args, Math.max(1_000, Math.min(120_000, deadline - Date.now())));
+    const r = await runProc(bin, args, Math.max(1_000, Math.min(120_000, deadline - Date.now())), target.env);
     log.push(`$ browse ${args.join(' ').slice(0, 300)}\n${r.stdout}${r.stderr}`.trim());
     if (r.error || r.code !== 0) {
       const first = (r.stderr || r.stdout || r.error || '').trim().split('\n')[0];
@@ -594,8 +646,24 @@ export async function renderWithBrowse(spec: RenderSpec, bin: string | null = re
   } catch (e) {
     return fail((e as Error).message);
   } finally {
-    if (tab !== undefined) await runProc(bin, ['closetab', String(tab)], 15_000);
+    if (tab !== undefined) await runProc(bin, ['closetab', String(tab)], 15_000, target.env);
     srv?.stop();
+    // A daemon this render started (the isolated retry) is ours to stop — it
+    // would otherwise idle for 30 minutes and hold a Chromium. Only stop when
+    // its state file exists, i.e. it really came up. Read the pid BEFORE the
+    // stop (the daemon is not guaranteed to remove its own state file) and wait
+    // for it to exit: a late log flush into the state dir would otherwise
+    // re-create the scratch directory after the caller removes it.
+    if (target.stateFile && fs.existsSync(target.stateFile)) {
+      let pid: number | undefined;
+      try { pid = JSON.parse(fs.readFileSync(target.stateFile, 'utf8')).pid; } catch { /* stop regardless */ }
+      await runProc(bin, ['stop'], 30_000, target.env);
+      const end = Date.now() + 10_000;
+      while (pid && Date.now() < end) {
+        try { process.kill(pid, 0); } catch { break; }
+        await Bun.sleep(100);
+      }
+    }
     if (work) fs.rmSync(work, { recursive: true, force: true });
   }
 }
