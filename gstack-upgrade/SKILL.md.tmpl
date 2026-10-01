@@ -80,7 +80,7 @@ Tell user the snooze duration: "Next reminder in 24h" (or 48h or 1 week, dependi
 Tell user: "Update checks disabled. Run `~/.claude/skills/gstack/bin/gstack-config set update_check true` to re-enable."
 Continue with the current skill.
 
-### Step 2: Detect install type
+{{DSH_UPGRADE_GUARD}}
 
 ```bash
 if [ -d "$HOME/.claude/skills/gstack/.git" ]; then

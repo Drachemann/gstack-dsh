@@ -41,6 +41,7 @@ import { generateDesignDocDiscovery } from './design-doc-discovery';
 import { generateSharedLibsRubric } from './shared-libs';
 import { generateTestValueBar, generateTestValueMessage } from './test-value';
 import { generateQAScope, generateQAExploratory, generateQAFunctional, generateQAResource, generateQAReview, generateQAReviewPreflight, generateQAMethodReads } from './qa';
+import { generateDshUpgradeGuard } from './dsh-upgrade-guard';
 
 export const RESOLVERS: Record<string, ResolverFn> = {
   AUTOPLAN_PUBLICATION_HOOK: generateAutoplanPublicationHook,
@@ -62,6 +63,7 @@ export const RESOLVERS: Record<string, ResolverFn> = {
   REDACT_INVOCATION_BLOCK: generateRedactInvocationBlock,
   THIRD_PARTY_ACTIONS: generateThirdPartyActions,
   DESIGN_DOC_DISCOVERY: generateDesignDocDiscovery,
+  DSH_UPGRADE_GUARD: generateDshUpgradeGuard,
   SHARED_LIBS_RUBRIC: generateSharedLibsRubric,
   SHARED_CODE_REUSE: generateSharedCodeReuse,
   UNTRUSTED_CONTENT_WARNING: generateUntrustedContentWarning,
