@@ -37,6 +37,7 @@ ${localGuard} && GSTACK_ROOT="$_ROOT/${ctx.paths.localSkillRoot}"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
+GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 `
     : '';
   const brainHealthFlag = ctx.host === 'gbrain' || ctx.host === 'hermes' ? ' --brain-health' : '';

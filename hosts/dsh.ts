@@ -180,6 +180,11 @@ const dsh = defineHost({
       'lib',
       'browse',
       'design',
+      // `make-pdf` is the third engine, and the only one whose resolver reads an
+      // env-var path ($GSTACK_MAKE_PDF) rather than the project-local render
+      // tree. It was omitted here, so `/gstack-make-pdf` printed
+      // MAKE_PDF_NOT_AVAILABLE on every project except the source checkout.
+      'make-pdf',
       'docs',
       'scripts',
       'review',

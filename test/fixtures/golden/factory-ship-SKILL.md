@@ -21,6 +21,7 @@ GSTACK_ROOT="$HOME/.factory/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
+GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 _SS="$GSTACK_BIN/gstack-skill-start"
 [ -x "$_SS" ] || _SS=".factory/skills/gstack/bin/gstack-skill-start"
 "$_SS" --skill "ship" --model "claude" --parent-pid "$PPID" \

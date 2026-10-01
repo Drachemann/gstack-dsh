@@ -2101,7 +2101,7 @@ create_dsh_runtime_root() {
   # source spelled `$HOME/.claude/...` rather than `~/.claude/...`. The second
   # form bypasses $GSTACK_ROOT (and the project-local override with it) — that is
   # how `freeze` was missed and `/unfreeze` failed with exit 127.
-  for entry in bin lib browse design docs scripts review ship \
+  for entry in bin lib browse design make-pdf docs scripts review ship \
                plan-eng-review plan-design-review plan-devex-review \
                design-html office-hours gstack-upgrade supabase \
                freeze extension VERSION; do

@@ -19,6 +19,7 @@ GSTACK_ROOT="$HOME/.codex/skills/gstack"
 GSTACK_BIN="$GSTACK_ROOT/bin"
 GSTACK_BROWSE="$GSTACK_ROOT/browse/dist"
 GSTACK_DESIGN="$GSTACK_ROOT/design/dist"
+GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 _SS="$GSTACK_BIN/gstack-skill-start"
 [ -x "$_SS" ] || _SS=".agents/skills/gstack/bin/gstack-skill-start"
 "$_SS" --skill "ship" --model "gpt" --parent-pid "$PPID" \
