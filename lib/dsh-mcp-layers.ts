@@ -65,9 +65,16 @@ export function dshHomeFromEnv(env: NodeJS.ProcessEnv, home: string): string {
  * recover from the running process table. No process table, no profile layer —
  * we never guess a name, because guessing would read another profile's servers.
  */
+/** A profile name safe to interpolate into a path. Both sources use this. */
+const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9._-]*$/i;
+
 export function activeDshProfile(env: NodeJS.ProcessEnv, psOutput: string | null): string | null {
   const explicit = (env.DSH_PROFILE || "").trim();
-  if (explicit) return explicit;
+  // Validate the environment value too, not just the ps-derived one: this name
+  // is joined into a filesystem path (`profiles/<name>/mcp.json`), so an
+  // unvalidated `DSH_PROFILE=../../somewhere` would let an unrelated file pick
+  // the reported MCP mode.
+  if (explicit) return PROFILE_NAME_RE.test(explicit) ? explicit : null;
   if (!psOutput) return null;
   // Match the dsh entrypoint line and take the first non-flag token after the
   // script path: "node .../dsh/lib/bin.js web" -> "web".
@@ -75,7 +82,7 @@ export function activeDshProfile(env: NodeJS.ProcessEnv, psOutput: string | null
     if (!/\bdsh\b/.test(line) || !/lib\/bin\.js/.test(line)) continue;
     const after = line.replace(/^.*?lib\/bin\.js\s*/, "");
     const token = after.split(/\s+/).find((t) => t && !t.startsWith("-"));
-    if (token && /^[a-z0-9][a-z0-9._-]*$/i.test(token)) return token;
+    if (token && PROFILE_NAME_RE.test(token)) return token;
   }
   return null;
 }

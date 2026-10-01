@@ -51,7 +51,12 @@ import {
   readGbrainVersion,
 } from "../lib/gbrain-local-status";
 import { gbrainConfigDir, isTransactionModePooler } from "../lib/gbrain-exec";
-import { activeDshProfile, dshHomeFromEnv, resolveDshMcpGbrain } from "../lib/dsh-mcp-layers";
+import {
+  activeDshProfile,
+  dshHomeFromEnv,
+  existingDshMcpLayers,
+  resolveDshMcpGbrain,
+} from "../lib/dsh-mcp-layers";
 
 const STATE_DIR = process.env.GSTACK_HOME || join(userHome(), ".gstack");
 const SCRIPT_DIR = __dirname;
@@ -239,13 +244,19 @@ function detectMcpMode(): "local-stdio" | "remote-http" | "none" {
   // this tier only answers where the chain above would have said "none".
   // Without it, a live dsh registration reads as "none" (dsh has no `mcp add`
   // and no `~/.claude.json` row), which is the bug this tier fixes.
-  const dsh = resolveDshMcpGbrain({
-    projectRoot: process.cwd(),
-    dshHome: dshHomeFromEnv(process.env, userHome()),
-    profile: activeDshProfile(process.env, tryExec("ps", ["-eo", "args"], 2_000)),
-    remoteMcpUrl,
-  });
-  if (dsh) return dsh.mode;
+  const projectRoot = process.cwd();
+  const dshHome = dshHomeFromEnv(process.env, userHome());
+  const envProfile = (process.env.DSH_PROFILE || "").trim();
+  // Cheap gate first: with no dsh layer on disk this tier cannot answer at all,
+  // so skip the layer reads AND the process-table listing. Then resolve the
+  // profile lazily — `||` short-circuits, so `ps` runs only when DSH_PROFILE is
+  // genuinely unset. It is set on every dsh tool call, so evaluating it as an
+  // argument cost a fork/exec (~20ms) on every detector invocation for nothing.
+  if (existingDshMcpLayers({ projectRoot, dshHome, profile: envProfile || null }).length > 0) {
+    const profile = envProfile || activeDshProfile(process.env, tryExec("ps", ["-eo", "args"], 2_000));
+    const dsh = resolveDshMcpGbrain({ projectRoot, dshHome, profile, remoteMcpUrl });
+    if (dsh) return dsh.mode;
+  }
   return "none";
 }
 

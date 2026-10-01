@@ -100,6 +100,22 @@ describe("dshMcpLayerPaths — precedence", () => {
     // Only flags, no positional: do not invent a profile name.
     expect(activeDshProfile({}, "node .../dsh/lib/bin.js --no-open")).toBeNull();
   });
+
+  test("activeDshProfile rejects a traversing name from EITHER source", () => {
+    // The name is joined into `profiles/<name>/mcp.json`, so an unvalidated
+    // environment value would let an unrelated file pick the reported mode.
+    for (const bad of ["../../etc", "a/b", "..", "/abs", "web/../other"]) {
+      expect(activeDshProfile({ DSH_PROFILE: bad }, null)).toBeNull();
+      expect(activeDshProfile({}, `node .../dsh/lib/bin.js ${bad}`)).toBeNull();
+    }
+    // And a traversing DSH_PROFILE must not select a layer outside dshHome.
+    const escaped = resolveDshMcpGbrain({
+      projectRoot: tmpProject,
+      dshHome: path.join(tmpHome, ".dsh"),
+      profile: activeDshProfile({ DSH_PROFILE: "../../evil" }, null),
+    });
+    expect(escaped).toBeNull();
+  });
 });
 
 describe("resolveDshMcpGbrain — classification", () => {
