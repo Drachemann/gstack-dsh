@@ -150,3 +150,26 @@ across 55 skills) is likewise untouched: it currently resolves because the
 sibling `.agents/skills` render registers bare names. Removing that tree would
 break every bare invocation in the dsh render, so the two must be decided
 together.
+
+---
+
+## 6. Dogfood observation: `/gstack-careful`
+
+Running `/gstack-careful` end to end on this repo (the skill loaded from
+`.dsh/skills/gstack-careful`, resolved its base directory, executed its bash, and
+appended its `~/.gstack/analytics/skill-usage.jsonl` record) confirms the skill
+machinery works. It also confirms a host mismatch the gap analysis predicted:
+
+`gstack-careful/SKILL.md` describes its enforcement as a Claude Code hook that
+returns `hookSpecificOutput` with `permissionDecision: "ask"`. dsh has no
+`PreToolUse` hook mechanism and ignores that payload shape; its authoritative
+gate is the Harness approval policy (`user-approval` with
+`read-only|workspace-write|danger-full-access` × `ask|never`) plus the
+`gstack-dsh` plugin's pre-execution risk gate. So on dsh this skill is
+documentation of intent, not an active gate — the honest mapping is "dsh's
+policy is authoritative; the skill is a thin wrapper over it."
+
+The same class covers the `ask_user_question` auto-decide hooks, which cannot
+fire on dsh at all. Neither is fixed here: both need a decision about how much
+of gstack's Claude-hook surface to re-express as dsh policy, and that decision
+changes behaviour for every skill.
