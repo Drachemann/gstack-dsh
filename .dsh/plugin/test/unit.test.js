@@ -825,3 +825,97 @@ test('readCareMode: absent, malformed, unknown, and expired markers all mean off
 
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+// ─── Freeze boundary (the dsh arm of /gstack-freeze) ────────────────────────
+// The hook this mirrors is deny-tier, and its comments record the two bugs the
+// semantics exist to prevent: state-root drift between writer and reader
+// (#1459/#1509), and an in-boundary symlink escaping the boundary. Both are
+// pinned here, because a boundary that fails open is not a boundary.
+test('freezeStateFile mirrors gstack_hook_state_root exactly', async () => {
+  const { freezeStateFile } = await import('../lib/freeze.js');
+  assert.equal(freezeStateFile({ GSTACK_HOME: '/tmp/gh' }, '/home/u'), '/tmp/gh/freeze-dir.txt');
+  assert.equal(freezeStateFile({}, '/home/u'), '/home/u/.gstack/freeze-dir.txt');
+  // The plugin-data branch is kept for byte-compatibility with the shell
+  // resolver even though dsh cannot reach it.
+  assert.equal(
+    freezeStateFile({ CLAUDE_PLUGIN_DATA: '/tmp/pd', CLAUDE_PLUGIN_ROOT: '/x/gstack' }, '/home/u'),
+    '/tmp/pd/freeze-dir.txt',
+  );
+  // A CLAUDE_PLUGIN_ROOT that is not gstack must NOT hijack the root.
+  assert.equal(
+    freezeStateFile({ CLAUDE_PLUGIN_DATA: '/tmp/pd', CLAUDE_PLUGIN_ROOT: '/x/other' }, '/home/u'),
+    '/home/u/.gstack/freeze-dir.txt',
+  );
+});
+
+test('checkBoundary: no boundary allows, an unusable boundary denies', async () => {
+  const { checkBoundary, readFreezeBoundary } = await import('../lib/freeze.js');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-'));
+  const file = path.join(dir, 'freeze-dir.txt');
+  const exec = { name: 'write', arguments: { file_path: '/tmp/whatever.txt' } };
+
+  // Absent = unconfigured = allow. This must NOT be confused with failure.
+  assert.equal(checkBoundary(exec, { file }), null);
+  assert.equal(readFreezeBoundary(file).active, false);
+
+  // Empty boundary (torn write) = allow.
+  fs.writeFileSync(file, '\n');
+  assert.equal(checkBoundary(exec, { file }), null);
+
+  // Relative boundary = ambiguous = deny, never a guess.
+  fs.writeFileSync(file, 'some/relative/dir\ngstack-freeze-v1:user\n');
+  const ambiguous = checkBoundary(exec, { file });
+  assert.ok(ambiguous, 'a relative boundary must deny rather than guess a base');
+  assert.match(ambiguous.reason, /relative/);
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test('checkBoundary: containment, non-file tools, and the symlink escape', async () => {
+  const { checkBoundary } = await import('../lib/freeze.js');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-freeze-')));
+  const inside = path.join(base, 'inside');
+  const outside = path.join(base, 'outside');
+  fs.mkdirSync(inside);
+  fs.mkdirSync(outside);
+  const file = path.join(base, 'freeze-dir.txt');
+  fs.writeFileSync(file, `${inside}\ngstack-freeze-v1:user\n`);
+
+  const w = (p) => ({ name: 'write', arguments: { file_path: p } });
+
+  // Inside: allowed. The boundary itself: allowed. Outside: denied.
+  assert.equal(checkBoundary(w(path.join(inside, 'a.txt')), { file }), null);
+  assert.equal(checkBoundary(w(inside), { file }), null);
+  assert.ok(checkBoundary(w(path.join(outside, 'b.txt')), { file }));
+  // A sibling whose name merely shares the prefix must NOT be treated as inside.
+  fs.mkdirSync(path.join(base, 'inside-evil'));
+  assert.ok(checkBoundary(w(path.join(base, 'inside-evil', 'c.txt')), { file }));
+
+  // Not a file-targeted tool: allowed, as the hook allows a payload with no
+  // file_path. bash is deliberately out of scope, exactly as in the hook.
+  assert.equal(checkBoundary({ name: 'bash', arguments: { command: 'rm -rf /' } }, { file }), null);
+  // A file tool with no path argument: allowed.
+  assert.equal(checkBoundary({ name: 'write', arguments: {} }, { file }), null);
+
+  // THE ESCAPE: a symlink that lives INSIDE the boundary but points outside it.
+  // Resolving only the parent would allow this while the write lands outside.
+  const escape = path.join(inside, 'escape.txt');
+  const secret = path.join(outside, 'secret.txt');
+  fs.writeFileSync(secret, 'original');
+  fs.symlinkSync(secret, escape);
+  const escaped = checkBoundary(w(escape), { file });
+  assert.ok(escaped, 'an in-boundary symlink pointing outside must be denied');
+  assert.match(escaped.reason, /outside/);
+
+  // A relative path is resolved against the supplied cwd, not the process cwd.
+  assert.equal(checkBoundary({ name: 'edit', arguments: { file_path: 'a.txt' } }, { file, cwd: inside }), null);
+  assert.ok(checkBoundary({ name: 'edit', arguments: { file_path: 'a.txt' } }, { file, cwd: outside }));
+
+  fs.rmSync(base, { recursive: true, force: true });
+});

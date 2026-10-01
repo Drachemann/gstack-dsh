@@ -33,6 +33,8 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
+import { checkBoundary } from './freeze.js';
+
 import {
   JevClient,
   QUESTION_TYPES,
@@ -325,6 +327,8 @@ export function apply(ctx, config = {}) {
     riskGateDenials: 0,
     /** Ambiguous-band calls Jev flagged in `off` mode: recorded, not blocked. */
     riskGateObserved: 0,
+    /** Edits the /gstack-freeze boundary refused. */
+    riskGateFreezeDenials: 0,
     /** Mode at session start; the gate re-reads it per call so /gstack-careful works mid-session. */
     riskGateMode: readCareMode().mode,
   };
@@ -841,6 +845,33 @@ function registerRiskGate({ ctx, jev, session, log }) {
   const disposer = ctx.on('tools/pre-execute', async (exec, next) => {
     // The decision layer must never gate itself into a loop.
     if (GATE_EXEMPT_TOOLS.has(exec.name)) return next();
+
+    // The freeze boundary is checked FIRST and deterministically: a hard
+    // boundary the user set must not depend on a model's judgment, and must not
+    // spend a Jev decision on an answer that needs none. This is the dsh arm of
+    // /gstack-freeze and /gstack-guard, which otherwise write state that
+    // nothing enforces on a host with no PreToolUse hook.
+    let boundaryHit = null;
+    try {
+      boundaryHit = checkBoundary(exec);
+    } catch (error) {
+      // The state file only exists when a boundary is active, so reaching here
+      // means an active boundary we could not evaluate. Freeze is deny-tier:
+      // fail closed and name the escape hatch.
+      session.riskGateFreezeDenials += 1;
+      log(`freeze boundary check failed for '${exec.name}': ${error?.message || error}`);
+      return {
+        kind: 'deny',
+        reason:
+          `Blocked by the gstack-dsh freeze boundary: the check failed (${error?.message || error}). ` +
+          `Freeze is deny-tier, so this fails closed. Run /gstack-unfreeze to clear the boundary.`,
+      };
+    }
+    if (boundaryHit) {
+      session.riskGateFreezeDenials += 1;
+      log(`freeze denied '${exec.name}': ${boundaryHit.reason}`);
+      return { kind: 'deny', reason: boundaryHit.reason };
+    }
 
     let assessment;
     try {
