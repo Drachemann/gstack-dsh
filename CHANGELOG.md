@@ -1,5 +1,67 @@
 # Changelog
 
+## [1.91.10.0] - 2026-10-01
+
+**gstack's skills now actually run on DeepSeek Harness.** The dsh host renders gstack's full
+skill set, and `./setup --host dsh` installs the runtime those skills call into — so a dsh
+session can run `/gstack-review`, `/gstack-ship`, `/gstack-setup-gbrain` and the rest for real,
+not just see them in the catalog.
+
+Before this release the dsh port was render-only: it wrote `SKILL.md` files and nothing else.
+Every skill's preamble resolved `$GSTACK_ROOT` to a directory that contained one file, so all
+740 `$GSTACK_ROOT/<path>` references across the corpus — `bin/`, `lib/`, `browse/`, `scripts/`,
+`docs/`, `review/` — failed on the first command. The skills loaded and then could not do
+anything.
+
+```
+$ ./setup --host dsh
+gstack ready (dsh).
+  project skills: <repo>/.dsh/skills
+  global skills:  /home/you/.dsh/skills
+  mcp servers:    dsh mounts $DSH_HOME/mcp.yml or .dsh/mcp.yml — run /gstack-setup-gbrain to register gbrain there
+```
+
+| | Before | After |
+|---|---|---|
+| DSH skill roots installed | 0 | 2 (project + user) |
+| `$GSTACK_ROOT` asset paths resolving | 0 / 72 | 72 / 72 |
+| Cross-session brain registration | Claude Code only | DSH MCP layer, or Claude Code |
+| Specialist review lanes on dsh | suppressed | parallel `subagent` lanes |
+
+### Itemized changes
+
+- **`./setup --host dsh` is a real install.** It renders the skill tree, then builds the two
+  runtime roots dsh discovers — the project's `.dsh/skills` and the user-level `~/.dsh/skills` —
+  and links every rendered skill into the user root so gstack is available in every dsh project.
+  No profile edit and no restart: dsh watches both roots live.
+- **A project-local skill root is preferred only when it is usable.** The generated preamble
+  checks for the skill launcher before preferring a repo-local install over the global one, so a
+  partially-populated render can no longer shadow a healthy install. Hosts that did not opt in
+  render byte-identically.
+- **`/setup-gbrain` registers the brain the way each host actually mounts MCP servers.** On
+  DeepSeek Harness it writes the watched user-scope MCP layer (`$DSH_HOME/mcp.json`), keeping the
+  bearer token as a `${GBRAIN_MCP_TOKEN}` placeholder that dsh expands at mount time — the token
+  never rests in a file. It parses before writing, refuses to overwrite a malformed config, and
+  checks for the silent shadowing that would drop the entry. Claude Code keeps `claude mcp add`.
+- **The specialist review army works on dsh.** It dispatches parallel in-host subagents, which is
+  a native dsh capability, so `/review` and `/ship` regain their fan-out there instead of losing
+  it. The dispatch instructions now name dsh's real `subagent` parameters.
+- **Claude-only tool spellings are translated** for the dsh host: the plan-mode gate calls
+  `exit_plan_mode`, and no dispatch site asks for a `subagent_type` field that does not exist.
+- **Brain-aware blocks render for dsh hosts**, so completing `/setup-gbrain` makes the planning
+  skills brain-aware instead of leaving them suppressed at render time.
+- **dsh installs no longer touch Claude-only state** — the Claude render directory and the
+  plan-tune hooks in `~/.claude/settings.json` are left alone by a `--host dsh` run.
+
+### For contributors
+
+- New optional `HostConfig.localSkillRootProbe` (default unset = unchanged bytes for every
+  existing host); `hosts/dsh.ts` sets it to the skill launcher.
+- `{{GBRAIN_MCP_REGISTER}}` owns Step 5a so the host-specific MCP mechanism lives in one resolver
+  instead of prose a model has to adapt.
+- dsh host documentation, gap analysis, and the workflow-verification record live in
+  `docs/dsh-port/`.
+
 ## [1.91.9.0] - 2026-09-29
 
 Every gstack workflow that proposes, writes, reviews or ships tests now applies one test value bar: a test earns its place by protecting behavior a real regression would break, and test count is not a goal. `/ship`'s coverage gate counts only tests that clear that bar, and the new `/test-audit` sweeps existing tests for ones that cost more than they protect.

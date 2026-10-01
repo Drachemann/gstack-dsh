@@ -103,7 +103,7 @@ These are conversational skills. Your OpenClaw agent runs them directly via chat
 
 ### Other AI Agents
 
-gstack works on 10 AI coding agents, not just Claude. Setup auto-detects which
+gstack works on 11 AI coding agents, not just Claude. Setup auto-detects which
 agents you have installed:
 
 ```bash
@@ -124,6 +124,26 @@ Or target a specific agent with `./setup --host <name>`:
 | OpenClaw | `--host openclaw` | ACP spawn pointers + methodology artifacts via `gen:skill-docs --host openclaw` + the instruction-only digest below (full guide: [docs/OPENCLAW.md](docs/OPENCLAW.md)) |
 | Hermes | `--host hermes` | Methodology artifacts via `gen:skill-docs --host hermes` + the instruction-only digest below |
 | GBrain (mod) | `--host gbrain` | Brain-aware skill variants, shipped from the GBrain repo |
+| DeepSeek Harness | `--host dsh` | No install step: renders skills into the project's own `.dsh/skills/gstack-*/SKILL.md`, which the Harness discovers and watches live |
+
+**DeepSeek Harness (dsh)** is project-scoped rather than machine-global, so it
+needs no installer. The Harness's own filesystem skill provider scans
+`{projectRoot}/.dsh/skills` as its highest-ranked root and watches it live, so
+writing the rendered skills there *is* the install — they load on the next
+session open with no profile edit and no global write:
+
+```bash
+bun run gen:skill-docs --host dsh
+```
+
+`./setup --host dsh` prints that instruction rather than installing anything, and
+`./setup --host all` renders the dsh tree alongside every other host. Frontmatter
+is translated for this host: `triggers` becomes `whenToUse`, `CLAUDE.md` becomes
+`AGENTS.md`, and `AskUserQuestion` becomes `ask_user_question`. Note one
+capability **loss** rather than a translation: dsh has no per-skill tool
+allowlist, so `allowed-tools` is dropped. The cross-harness outside-review
+resolvers are suppressed here too — dsh ships its own Jev-gated second-opinion
+policy (the `gstack-dsh` plugin) in their place.
 
 Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
