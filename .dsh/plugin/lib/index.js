@@ -15,8 +15,10 @@
  *      a low-confidence critical decision and capped per stage and per session.
  *   5. **A pre-execution risk gate** on the `tools/pre-execute` waterfall:
  *      before a tool runs, Jev classifies risk, irreversibility, task-fit, and
- *      injection-suspicion. Confidently dangerous calls are denied; ambiguous
- *      ones are escalated to the operator.
+ *      injection-suspicion. A confident danger is always denied. An ambiguous
+ *      verdict blocks only in the explicit safety mode `/gstack-careful` sets;
+ *      otherwise it is recorded and allowed, so automation is not stopped by
+ *      uncertainty. Jev is consulted in every mode.
  *
  * Everything here is deliberately offline-tolerant: any Jev failure degrades to
  * inaction (allow the call, do not advance the stage) rather than to a silent
@@ -27,6 +29,9 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   JevClient,
@@ -80,6 +85,70 @@ export const inject = ['tools', 'llm', 'agentDefaultModel'];
 const RISK_DENY_THRESHOLD = 0.8;
 /** Threshold above which an ambiguous-but-suspicious call is escalated to the operator. */
 const RISK_ASK_THRESHOLD = 0.55;
+
+/**
+ * Explicit-safety mode recorded by `/gstack-careful` and `/gstack-guard`.
+ *
+ * Jev classifies EVERY gated call in every mode — the mode changes only what the
+ * gate does with the verdict, never whether Jev is consulted:
+ *
+ *   off (default)  block a confident danger; allow the ambiguous band, recorded
+ *                  and logged. dsh's own approval policy and sandbox stay
+ *                  authoritative underneath, so this is "automate, but never
+ *                  wave through something Jev is confident is dangerous".
+ *   careful        additionally block the ambiguous band (the pre-existing
+ *                  behaviour). For when you are touching something you cannot
+ *                  cheaply undo.
+ *   guard          careful, plus the path freeze `/gstack-freeze` writes.
+ *
+ * The file is gstack state, not dsh state, so the same skill works on hosts
+ * whose gate is a Claude Code hook: they ignore it.
+ */
+export const CARE_MODE_FILE = join(homedir(), '.gstack', 'careful.json');
+/** A stale marker must never silently outlive the session that set it. */
+export const CARE_MODE_TTL_MS = 8 * 60 * 60 * 1000;
+
+/**
+ * Read the recorded mode. A missing, malformed, or expired file means `off`, so
+ * a broken marker can never escalate strictness by accident.
+ * @param {number} [now] - injectable clock, for tests.
+ * @param {string} [file] - injectable path, for tests.
+ */
+export function readCareMode(now = Date.now(), file = CARE_MODE_FILE) {
+  let raw;
+  try {
+    raw = readFileSync(file, 'utf8');
+  } catch {
+    return { mode: 'off', reason: 'no marker' };
+  }
+  let doc;
+  try {
+    doc = JSON.parse(raw);
+  } catch {
+    return { mode: 'off', reason: 'marker is not valid JSON' };
+  }
+  const mode = doc?.mode;
+  if (mode !== 'careful' && mode !== 'guard') {
+    return { mode: 'off', reason: `unknown mode '${String(mode)}'` };
+  }
+  const since = Date.parse(doc?.since ?? '');
+  if (Number.isFinite(since) && now - since > CARE_MODE_TTL_MS) {
+    return { mode: 'off', reason: 'marker expired' };
+  }
+  return { mode, since: doc?.since, reason: 'active' };
+}
+
+/**
+ * The gate's decision for one assessed call. Pure, so the policy is pinned by
+ * direct tests rather than by driving Jev.
+ *
+ * @returns {'deny'|'block'|'observe'|'allow'}
+ */
+export function gateVerdict(assessment, mode = 'off') {
+  if (assessment?.deny) return 'deny';
+  if (!assessment?.ask) return 'allow';
+  return mode === 'careful' || mode === 'guard' ? 'block' : 'observe';
+}
 
 /**
  * Tools that are cheap, read-only, and side-effect-free. Consulting Jev before
@@ -254,6 +323,10 @@ export function apply(ctx, config = {}) {
     escalation: createEscalationState(),
     riskGateDecisions: 0,
     riskGateDenials: 0,
+    /** Ambiguous-band calls Jev flagged in `off` mode: recorded, not blocked. */
+    riskGateObserved: 0,
+    /** Mode at session start; the gate re-reads it per call so /gstack-careful works mid-session. */
+    riskGateMode: readCareMode().mode,
   };
 
   /** Persist the current pipeline state; a failed write never fails the tool. */
@@ -782,7 +855,14 @@ function registerRiskGate({ ctx, jev, session, log }) {
 
     session.riskGateDecisions += 1;
 
-    if (assessment.deny) {
+    // Jev is consulted on every gated call in every mode; the mode only decides
+    // what happens to an ambiguous verdict. Re-read per call so invoking
+    // /gstack-careful takes effect immediately, without a session restart.
+    const care = readCareMode();
+    session.riskGateMode = care.mode;
+    const verdict = gateVerdict(assessment, care.mode);
+
+    if (verdict === 'deny') {
       session.riskGateDenials += 1;
       log(`denied '${exec.name}': ${assessment.reason}`);
       return {
@@ -794,13 +874,27 @@ function registerRiskGate({ ctx, jev, session, log }) {
       };
     }
 
-    if (assessment.ask) {
+    if (verdict === 'observe') {
+      // Middle band, no explicit safety mode. Recorded so the signal is not
+      // lost, but not blocked: an uncertain verdict is not a danger verdict,
+      // and blocking here is what stops automation dead. The Harness approval
+      // policy and sandbox remain authoritative underneath.
+      session.riskGateObserved += 1;
+      log(
+        `observed (allowed) '${exec.name}': ${assessment.reason} — ` +
+          `/gstack-careful would block this (risk p=${fmt(assessment.risk)})`,
+      );
+      return next();
+    }
+
+    if (verdict === 'block') {
       return {
         kind: 'ask',
         reason:
           `gstack-dsh risk gate is unsure about '${exec.name}': ${assessment.reason} ` +
           `(risk p=${fmt(assessment.risk)}, irreversibility p=${fmt(assessment.irreversible)}, ` +
-          `injection-suspicion p=${fmt(assessment.injection)}).`,
+          `injection-suspicion p=${fmt(assessment.injection)}). ` +
+          `This is /gstack-careful mode; end the skill to relax it.`,
       };
     }
 

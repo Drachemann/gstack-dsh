@@ -763,3 +763,65 @@ test('the tool discovers the live registry itself when no list is configured', a
   assert.equal(result.opinion, 'Discovered model answer.');
   assert.equal(plugin.escalationSummary().used, 1);
 });
+
+// ─── Risk-gate safety modes ─────────────────────────────────────────────────
+// Jev is consulted on every gated call in every mode. The mode decides only what
+// happens to an AMBIGUOUS verdict, so these pin the policy directly rather than
+// depending on how a mocked Jev happens to score a call.
+test('gateVerdict: a confident danger is denied in every mode', async () => {
+  const { gateVerdict } = await import('../lib/index.js');
+  const danger = { deny: true, ask: true, reason: 'risk + irreversible' };
+  for (const mode of ['off', 'careful', 'guard']) {
+    assert.equal(gateVerdict(danger, mode), 'deny');
+  }
+});
+
+test('gateVerdict: the ambiguous band blocks only in an explicit safety mode', async () => {
+  const { gateVerdict } = await import('../lib/index.js');
+  const ambiguous = { deny: false, ask: true, reason: 'elevated risk' };
+  // Default: recorded, not blocked — uncertainty must not stop automation.
+  assert.equal(gateVerdict(ambiguous, 'off'), 'observe');
+  assert.equal(gateVerdict(ambiguous), 'observe');
+  assert.equal(gateVerdict(ambiguous, 'careful'), 'block');
+  assert.equal(gateVerdict(ambiguous, 'guard'), 'block');
+});
+
+test('gateVerdict: a clean call is allowed in every mode', async () => {
+  const { gateVerdict } = await import('../lib/index.js');
+  const clean = { deny: false, ask: false, reason: '' };
+  for (const mode of ['off', 'careful', 'guard']) {
+    assert.equal(gateVerdict(clean, mode), 'allow');
+  }
+});
+
+test('readCareMode: absent, malformed, unknown, and expired markers all mean off', async () => {
+  const { readCareMode, CARE_MODE_TTL_MS } = await import('../lib/index.js');
+  const fs = await import('node:fs');
+  const os = await import('node:os');
+  const path = await import('node:path');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gstack-care-'));
+  const file = path.join(dir, 'careful.json');
+  const now = Date.parse('2026-10-01T12:00:00Z');
+
+  // Absent: never escalate strictness because a file is missing.
+  assert.equal(readCareMode(now, file).mode, 'off');
+
+  // Malformed JSON in a safety marker must fail open, not throw.
+  fs.writeFileSync(file, '{not json');
+  assert.equal(readCareMode(now, file).mode, 'off');
+
+  // Unknown mode names are not silently promoted.
+  fs.writeFileSync(file, JSON.stringify({ mode: 'yolo', since: '2026-10-01T11:00:00Z' }));
+  assert.equal(readCareMode(now, file).mode, 'off');
+
+  // Active marker.
+  fs.writeFileSync(file, JSON.stringify({ mode: 'careful', since: '2026-10-01T11:00:00Z' }));
+  assert.equal(readCareMode(now, file).mode, 'careful');
+
+  // Expired marker: a stale session's strictness must not outlive it.
+  const stale = new Date(now - CARE_MODE_TTL_MS - 1000).toISOString();
+  fs.writeFileSync(file, JSON.stringify({ mode: 'guard', since: stale }));
+  assert.equal(readCareMode(now, file).mode, 'off');
+
+  fs.rmSync(dir, { recursive: true, force: true });
+});
