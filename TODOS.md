@@ -161,24 +161,38 @@ record of what works with no Aside.
 ### cso free-suite portability (filed 2026-10-02, from the friction-batch verification)
 
 Triaging the free suite's red `test/cso-*` family (14 failures in isolation on this machine) found
-one genuine regression of ours and one environment landmine.
+one genuine regression of ours, one defect worth fixing, and one remaining decision.
 
 - **FIXED: `test/cso-distribution.test.ts` pinned a stale `needs` list.** Commit `97e85d29` added the
   `plugin-node-tests` job to the `free-tests` aggregate so plugin tests are merge-blocking, but the test
   asserting that list still expected the four-job version. Updated to
   `['free-suite', 'plugin-node-tests', 'cso-macos-launcher', 'cso-windows-launcher', 'cso-docker-integration']`.
-- **OPEN (P2): preparation refuses every tree built under `umask 0002`.** `lib/cso/preparation-executor.ts:557`
-  fails `UNSAFE_PATH` on any directory with `mode & 0o022`, i.e. group- **or** other-writable. With this
-  machine's `umask 0002`, every directory the fixtures create is `0775`, so 12 acquisition / adversarial /
-  Rails tests fail with `CsoError: Preparation tree contains a publicly writable directory`. Under
-  `umask 022` the same files are **28 pass / 0 fail**, and the whole family is **625 pass / 27 skip / 1 fail**.
-  So this is not a code regression — but it IS a real operator-facing defect: any Linux user on the very
-  common `umask 0002` (user-private groups) gets a hard `UNSAFE_PATH` from `/gstack-cso` preparation, with a
-  message that blames their tree rather than their umask. Fix options, in preference order: (a) exempt
-  directories the executor did not itself create, (b) norm the check against the process umask rather than
-  rejecting group-write outright, or (c) chmod the preparation root private as it is created. Needs a product
-  decision because the check is deliberate hardening. Effort S–M. **Owning files:**
-  `lib/cso/preparation-executor.ts` (`walk`, ~line 557).
+- **FIXED: preparation rejected the execution copy it had just built under `umask 0002`.**
+  `lib/cso/preparation-executor.ts:557` fails `UNSAFE_PATH` on any directory with `mode & 0o022`, i.e.
+  group- **or** other-writable. The runner's copy inherits the process umask, so with `umask 0002` every
+  directory was 0775 and 9 acquisition / adversarial tests died with
+  `CsoError: Preparation tree contains a publicly writable directory` — the tool failing its own artifact.
+  Fixed by hardening the *prepared execution copy's* directory modes before verification
+  (`hardenDirectoryModes`, called right after the separate-disposable-copy guard). Directory modes are not
+  part of the manifest — `treeManifest` pushes entries only for files and symlinks — so the change is
+  hash-neutral, and the walk's check is left exactly as strict as the enforcement point for anything we did
+  not create. Measured: the family went **14 fail → 4 fail** under `umask 002`, and stayed at 1 fail under
+  `umask 022`, so no regression on CI's umask. The source snapshot is deliberately NOT chmod'd — mutating
+  the user's own repo to satisfy a check would be the wrong trade.
+- **OPEN (P2): the private-state ancestor rule also assumes `umask 022`.** The 3 remaining umask failures are
+  a different check, `lib/cso/state.ts:199`:
+  `if (process.platform!=='win32' && (s.mode & 0o022) && !(s.mode & 0o1000)) throw ...'Private state has a
+  group- or world-writable ancestor'`. It exempts a writable ancestor only when it carries the **sticky**
+  bit (`0o1000`), which is why `/tmp` (1777) passes but a 0775 work directory does not. On a `umask 0002`
+  machine every directory a user creates under their own project is 0775 without sticky, so this rejects a
+  legitimate private-state root and `/gstack-cso` fails before preparation even starts. This one is a real
+  product decision and I did not make it unilaterally: options are (a) accept a group-writable ancestor when
+  it is owned by the current user and its group is a group the user belongs to (user-private-group
+  semantics — the common Linux default this breaks on), (b) require the caller to pass an explicit
+  private-state root and validate it loudly, or (c) keep the rule and document a `umask 022` prerequisite
+  for `/gstack-cso`. (a) is the only one that makes the default Linux desktop work, and it needs a decision
+  because the sticky-bit exemption is deliberate hardening. Effort S–M. **Owning files:**
+  `lib/cso/state.ts` (`ensureDirectory`, ~line 199).
 - **OPEN (P3): the Python runner-shadow test needs a local venv.** `test/cso-python-runner-shadow.test.ts`
   skips only when `python` is absent; here `python -m venv` exits 1, so the test fails instead of skipping.
   It should skip when `venv`/`ensurepip` is unavailable, not only when the interpreter is missing. Effort XS.

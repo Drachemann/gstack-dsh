@@ -511,6 +511,39 @@ function boundedTreeNames(directory: string, deadline: number, signal?: AbortSig
   checkDeadline(deadline, signal);
   return names;
 }
+/**
+ * Strip group/other write from every directory in a prepared execution copy.
+ *
+ * The runner's copy inherits the invoking process's umask, so on the common
+ * user-private-groups default (`umask 0002`) every directory it creates is 0775
+ * — and `treeManifest` rejects group-writable directories as public. That failed
+ * preparation for a tree we had just created ourselves, blaming the tree rather
+ * than the umask, and left `/gstack-cso` unusable on such a machine.
+ *
+ * Directory modes are NOT part of the manifest: `treeManifest` pushes entries
+ * only for files and symlinks, never for the directories it descends into, so
+ * hardening them before verification cannot perturb any hash. The walk keeps its
+ * check unchanged as the enforcement point for anything we did not own.
+ *
+ * Symlinks are never followed and never chmod'd; a chmod that fails is left for
+ * the walk to fail closed on.
+ */
+function hardenDirectoryModes(root: string): void {
+  const pending: string[] = [root];
+  while (pending.length > 0) {
+    const dir = pending.pop()!;
+    let stat: fs.Stats;
+    try { stat = fs.lstatSync(dir); } catch { continue; }
+    if (!stat.isDirectory()) continue;
+    if ((stat.mode & 0o022) !== 0) { try { fs.chmodSync(dir, stat.mode & ~0o022); } catch { /* the walk fails closed */ } }
+    let names: string[];
+    try { names = fs.readdirSync(dir); } catch { continue; }
+    for (const name of names) {
+      const child = join(dir, name);
+      try { if (fs.lstatSync(child).isDirectory()) pending.push(child); } catch { /* the walk fails closed */ }
+    }
+  }
+}
 function treeManifest(rootPath: string, maxBytes: number, deadline: number, allowContainedSymlinks = false,
   signal?: AbortSignal): TreeEntry[] {
   checkDeadline(deadline, signal);
@@ -851,6 +884,11 @@ export class PreparationExecutor {
       if (preparedRoot === sourceRoot || preparedRoot.startsWith(`${sourceRoot}${sep}`) || sourceRoot.startsWith(`${preparedRoot}${sep}`) ||
         preparedRoot === this.options.cache.root || preparedRoot.startsWith(`${this.options.cache.root}${sep}`))
         fail('UNSAFE_PATH', 'Prepared application must be a separate disposable copy outside cache and source roots');
+      // The runner's copy carries this process's umask. Normalize it BEFORE
+      // verification so a `umask 0002` machine does not fail its own tree as
+      // publicly writable; directory modes are hash-neutral, so the projection
+      // and closure hashes below are unaffected.
+      hardenDirectoryModes(preparedRoot);
       const projection = provePreparedProjection(options.snapshot, preparedRoot, options.plan.stack, request.transformations, options.deadline, options.signal),
         preparedManifestHash = projection.manifestHash,preparedDependencyHash=projection.dependencyHash;
       if (treeHash(options.snapshot, MAX_SOURCE_BYTES, options.deadline, false, options.signal) !== sourceHash)
