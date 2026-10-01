@@ -429,7 +429,14 @@ policy:
  * Codex: keeps name + description only, enforces 1024-char limit.
  * Factory: keeps name + description + user-invocable, conditionally adds disable-model-invocation.
  */
-function transformFrontmatter(content: string, host: Host): string {
+/**
+ * @param frontmatterNameOverride When the host declares
+ *   `frontmatter.nameField === 'external'`, the caller passes the host's
+ *   external skill name (`gstack-ship`) so the generated `name:` field matches
+ *   the output directory. Omitted everywhere else, which preserves the original
+ *   template-name behaviour byte for byte.
+ */
+function transformFrontmatter(content: string, host: Host, frontmatterNameOverride?: string): string {
   const hostConfig = getHostConfig(host);
   const fm = hostConfig.frontmatter;
 
@@ -452,7 +459,10 @@ function transformFrontmatter(content: string, host: Host): string {
   if (fmEnd === -1) return content;
   const frontmatter = content.slice(fmStart + 4, fmEnd);
   const body = content.slice(fmEnd + 4);
-  const { name, description } = extractNameAndDescription(content);
+  const { name: extractedName, description } = extractNameAndDescription(content);
+  const name = fm.nameField === 'external' && frontmatterNameOverride
+    ? frontmatterNameOverride
+    : extractedName;
 
   // Description limit enforcement
   if (fm.descriptionLimit) {
@@ -509,10 +519,21 @@ function transformFrontmatter(content: string, host: Host): string {
     }
   }
 
-  // Rename fields (copy values from template frontmatter with new keys)
+  // Rename fields (copy values from template frontmatter with new keys).
+  //
+  // The value may be an inline scalar (`triggers: [a, b]`) OR a YAML block
+  // sequence (`triggers:` followed by indented `- item` lines). The block form
+  // is the common case in these templates, and the original pattern
+  // `:(.+(?:\n(?:\s+.+)*)?)` could not match it: at least one character was
+  // required after the colon, and the colon ends the line in block form, so the
+  // whole match failed and the field was silently dropped. This regex takes the
+  // rest of the colon line (possibly empty) plus any following lines that begin
+  // with horizontal whitespace, which is exactly a YAML block value.
   if (fm.renameFields) {
     for (const [oldName, newName] of Object.entries(fm.renameFields)) {
-      const fieldMatch = frontmatter.match(new RegExp(`^${oldName}:(.+(?:\\n(?:\\s+.+)*)?)`, 'm'));
+      const fieldMatch = frontmatter.match(
+        new RegExp(`^${oldName}:([^\\n]*(?:\\n[ \\t]+[^\\n]*)*)`, 'm')
+      );
       if (fieldMatch) {
         newFm += `${newName}:${fieldMatch[1]}\n`;
       }
@@ -715,7 +736,7 @@ function processExternalHost(
   const safetyProse = extractHookSafetyProse(tmplContent);
 
   // Transform frontmatter (host-aware)
-  let result = transformFrontmatter(content, host);
+  let result = transformFrontmatter(content, host, name);
 
   // Insert safety advisory at the top of the body (after frontmatter)
   if (safetyProse) {

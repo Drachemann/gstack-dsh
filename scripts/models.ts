@@ -27,6 +27,7 @@ export const ALL_MODEL_NAMES = [
   'gpt-6-astra',
   'gemini',
   'o-series',
+  'deepseek',
 ] as const;
 
 export type Model = (typeof ALL_MODEL_NAMES)[number];
@@ -73,6 +74,7 @@ export function resolveModel(input: string): Model | null {
   if (/^claude-sonnet-5(-|$)/.test(s)) return 'sonnet-5';
   if (/^claude(-|$)/.test(s)) return 'claude';
   if (/^gemini(-|$)/.test(s)) return 'gemini';
+  if (/^deepseek(-|$)/.test(s)) return 'deepseek';
 
   return null;
 }

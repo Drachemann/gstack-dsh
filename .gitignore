@@ -36,6 +36,14 @@ lib/cso/images/gstack-cso-preparation
 .hermes/
 .gbrain/
 .gbrain-source
+# dsh host: generated skill renders are gitignored like every other host's, but
+# .dsh/plugin/ is hand-authored plugin source and MUST stay tracked (it is the
+# version-pinned artifact the install receipt refers to).
+.dsh/skills/
+.dsh/cordis.patch.yml
+.dsh/package.json
+.dsh/node_modules/
+.dsh/plugin/node_modules/
 .context/
 extension/.auth.json
 # xterm assets are vendored from npm at build time; not source-of-truth.

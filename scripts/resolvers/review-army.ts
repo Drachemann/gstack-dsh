@@ -85,6 +85,26 @@ Note which specialists were selected, gated, and skipped. Print the selection:
 }
 
 function generateSpecialistDispatch(ctx: TemplateContext): string {
+  // DeepSeek Harness: its `subagent` tool is a first-class delegation surface,
+  // but it has no `subagent_type` and resolves the child route from the profile.
+  // The prose has to state the real parameter set or the model invents Claude's.
+  const isDsh = ctx.host === 'dsh';
+  const subagentConfig = isDsh
+    ? `**Subagent configuration (DeepSeek Harness):**
+- Each specialist is one \`subagent\` call. dsh's \`subagent\` has NO \`subagent_type\` field — put the specialist's role in \`description\` (3-5 words) and its full checklist in \`prompt\`, which must be self-contained because the child does not see this conversation.
+- Pass \`run_in_background: false\` so each call resolves before the merge step runs.
+- Leave \`provider\` / \`model\` / \`reasoning_effort\` unset for review lanes, so every specialist shares the session's route. Setting per-lane models is a deliberate cost/quality choice, not a default.
+- A review lane is one pass. When a step genuinely needs several durable roles collaborating across turns, that is a \`spawn_teammate\` team (when this session exposes team tools), not a wider subagent fan-out.`
+    : `**Subagent configuration:**
+- Use \`subagent_type: "general-purpose"\`
+- Pass \`run_in_background: false\` on every specialist Agent call — background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}; omitting the flag is not foreground.`;
+  const waitRules = isDsh
+    ? `**Wait for readers before editing:**
+- Confirm that each subagent call has returned or has been stopped. A timeout alone does not prove termination. For a backgrounded subagent, resolve it with \`job_output\` before reading its output; a \`wait_agent\` timeout is not a result.
+- A failed subagent may have stopped without completing its review. Record the failure and retain usable partial findings.`
+    : `**Wait for readers before editing:**
+- Confirm that each task has finished or is stopped. A timeout alone does not prove termination. If a reader or writer is still active, wait; if its state is unknown, inspect its task/process status. If you cannot confirm it stopped, use the parent's Fix-First stop path without edits.
+- A failed task may be stopped without having completed its review. Record the failure and retain usable partial findings.`;
   return `### Dispatch specialists in parallel
 
 For each selected specialist, launch an independent subagent via the Agent tool.
@@ -131,13 +151,9 @@ Past learnings: {learnings or 'none'}
 CHECKLIST:
 {checklist content}"
 
-**Subagent configuration:**
-- Use \`subagent_type: "general-purpose"\`
-- Pass \`run_in_background: false\` on every specialist Agent call — background is the default since ${CC_BACKGROUND_DEFAULT_SINCE}; omitting the flag is not foreground.
+${subagentConfig}
 
-**Wait for readers before editing:**
-- Confirm that each task has finished or is stopped. A timeout alone does not prove termination. If a reader or writer is still active, wait; if its state is unknown, inspect its task/process status. If you cannot confirm it stopped, use the parent's Fix-First stop path without edits.
-- A failed task may be stopped without having completed its review. Record the failure and retain usable partial findings.
+${waitRules}
 - Continue independent evidence collection after a terminal failure. Missing dispatched coverage remains incomplete, never completed or clean; successful peers cannot replace it.`;
 }
 
