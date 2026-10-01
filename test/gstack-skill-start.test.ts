@@ -109,6 +109,24 @@ describe('gstack-skill-start contract', () => {
     expect(out.split('\n')[0]).toBe('SKILL_START_PROTO: 1');
   });
 
+  test('an externally-prefixed host reports SKILL_PREFIX: true regardless of the config', () => {
+    // dsh registers skills under an already-prefixed external name
+    // (hosts/dsh.ts `frontmatter.nameField: 'external'`), so the user's
+    // `skill_prefix` preference cannot apply there. Reporting the config value
+    // would tell the model to invoke `/ship`, which dsh never registers. The
+    // render passes GSTACK_SKILLS_PREFIXED=true so the STATUS line matches what
+    // is installed.
+    const plain = runStart();
+    expect(plain).toMatch(/^SKILL_PREFIX: false$/m);
+
+    const prefixed = runStart([], { GSTACK_SKILLS_PREFIXED: 'true' });
+    expect(prefixed).toMatch(/^SKILL_PREFIX: true$/m);
+
+    // Anything other than the exact "true" leaves the config value alone.
+    const notTrue = runStart([], { GSTACK_SKILLS_PREFIXED: '1' });
+    expect(notTrue).toMatch(/^SKILL_PREFIX: false$/m);
+  });
+
   test('every host render invokes gstack-skill-start with a resolvable path shape (E1)', () => {
     // Claude host: literal interpolated path. Env-var hosts: $GSTACK_BIN.
     // Every generated SKILL.md that carries a Preamble fence must name the

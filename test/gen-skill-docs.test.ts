@@ -4998,6 +4998,26 @@ describe('dsh host render', () => {
     expect(codex).not.toContain('gstack-skill-start" ]');
   });
 
+  test('the externally-prefixed host tells its launcher the names are prefixed', () => {
+    // dsh registers `gstack-ship`, never `ship` (hosts/dsh.ts
+    // `frontmatter.nameField: 'external'`), so `skill_prefix: false` cannot
+    // apply there. Without this per-command assignment the STATUS line reports
+    // the config value and the model advises `/ship`, which dsh does not
+    // register.
+    const dsh = readDsh('ship');
+    expect(dsh).toContain('GSTACK_SKILLS_PREFIXED=true "$_SS" --skill "ship"');
+  });
+
+  test('a host that keeps template names does NOT get the prefixed assignment', () => {
+    // Control: codex keeps the template name (`ship`), so it must stay
+    // byte-identical — a stray assignment would be a needless cross-host diff.
+    const codex = fs.readFileSync(
+      path.join(CODEX_SKILLS, 'gstack-ship', 'SKILL.md'),
+      'utf-8',
+    );
+    expect(codex).not.toContain('GSTACK_SKILLS_PREFIXED');
+  });
+
   test('Claude-only tool names are rewritten to their dsh equivalents', () => {
     const ship = readDsh('ship');
     expect(ship).not.toContain('ExitPlanMode');
