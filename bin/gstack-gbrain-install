@@ -143,7 +143,20 @@ if [ "$VIA" = "mise" ] || { [ "$VIA" = "auto" ] && command -v mise >/dev/null 2>
         _mise_version=$(gbrain --version 2>/dev/null | head -1 | awk '{print $NF}' | tr -d '[:space:]v' || true)
         log "installed gbrain ${_mise_version:-(version unknown)} via mise"
         log "  managed by mise: upgrade with 'mise up gbrain', pin with 'mise use -g ${GBRAIN_MISE_SPEC}@<version>'"
-        log "  note: mise's minimum_release_age may hold back very recent releases by design"
+        # Name the release mise's age filter withheld, instead of saying only
+        # that one "may" exist. mise installs releases older than
+        # minimum_release_age on purpose (supply-chain safety we do NOT weaken),
+        # so a fresh install can silently land several releases behind upstream.
+        # --minimum-release-age 0 widens THIS READ-ONLY LISTING only; the
+        # install-time guard is untouched.
+        _mise_latest=$(timeout 20 mise ls-remote --minimum-release-age 0 "$GBRAIN_MISE_SPEC" 2>/dev/null \
+          | grep -E '^[0-9]' | tail -1 || true)
+        if [ -n "$_mise_latest" ] && [ "$_mise_latest" != "${_mise_version:-}" ]; then
+          log "  age filter: ${_mise_latest} is released but held back by mise's minimum_release_age"
+          log "  take it explicitly (mise re-checks nothing about the age): mise use -g ${GBRAIN_MISE_SPEC}@${_mise_latest}"
+        else
+          log "  age filter: no newer release withheld by mise's minimum_release_age"
+        fi
         exit 0
       fi
       log "mise reported success but 'gbrain' is still not on PATH — falling back to the source install"
