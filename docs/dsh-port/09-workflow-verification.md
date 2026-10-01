@@ -151,6 +151,18 @@ sibling `.agents/skills` render registers bare names. Removing that tree would
 break every bare invocation in the dsh render, so the two must be decided
 together.
 
+**Resolved (2026-10-02).** The `/gstack-*` prefix is a deliberate dsh decision,
+not a translation gap: dsh's registry de-duplicates on the frontmatter `name`, so
+a bare `ship` would collide with any other installed pack's `ship`
+(`hosts/dsh.ts:62`, `frontmatter.nameField: 'external'`). Bare names must not come
+back. What was actually broken was the STATUS line: the launcher echoed
+`skill_prefix` from `~/.gstack/config.yaml` while the dsh render is prefixed
+regardless, so the preamble's own rule told the model to offer `/ship` — a skill
+dsh never registers. The render now passes `GSTACK_SKILLS_PREFIXED=true` for
+external-name hosts and the launcher reports `SKILL_PREFIX: true`. The sibling
+`.agents/skills` tree can now be removed without changing any advice. See
+`11-install-and-use.md` section 3.
+
 ---
 
 ## 6. Dogfood observation: `/gstack-careful`

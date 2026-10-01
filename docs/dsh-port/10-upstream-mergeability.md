@@ -121,6 +121,20 @@ host, so their rendered bytes are byte-identical (pinned by the unchanged Claude
 described in `11-install-and-use.md` §5. The template line it replaces is the
 Step 2 heading itself, which is why no other host sees a stray blank line.
 
+### 2.9 `bin/gstack-skill-start` — a per-command env override the launcher honors
+
+`scripts/resolvers/preamble/generate-preamble-bash.ts` emits
+`GSTACK_SKILLS_PREFIXED=true ` before the launcher only for hosts whose
+`frontmatter.nameField === 'external'` (today: dsh). The launcher then reports
+`SKILL_PREFIX: true` instead of the `skill_prefix` config value. It is emitted as
+a per-command assignment, not a bare shell assignment, because the launcher is a
+child process and would not inherit it otherwise.
+
+Host-gated and byte-inert everywhere else: codex/factory/Claude renders contain no
+`GSTACK_SKILLS_PREFIXED`, pinned by `test/gen-skill-docs.test.ts`. The behavior is
+pinned by `test/gstack-skill-start.test.ts`, including that only the exact string
+`true` overrides the config.
+
 ## 3. Merge checklist
 
 Run this after every `git merge origin/main` (or before opening an upstream PR):
@@ -170,9 +184,11 @@ merge that breaks them fails the suite rather than shipping.
   them the way `hosts/codex.ts` skips its own wrapper. That is a visible
   capability removal, so it is the operator's call, not a silent port decision.
 - **Bare `/ship` references** (`/ship` vs the registered `gstack-ship`, 1052
-  hits in 55 skills) are unresolved and currently work only because the sibling
-  `.agents/skills` render registers bare names. Any fix has to be decided
-  together with whether that tree stays.
+  hits in 55 skills) — **resolved**, see §2.9. The `gstack-*` prefix is a
+  deliberate dsh decision (dsh's registry de-duplicates on the frontmatter
+  `name`), so bare names stay gone; the preamble now reports the prefix the
+  install actually uses instead of the `skill_prefix` config value, and the
+  sibling `.agents/skills` tree is no longer load-bearing for advice.
 
 ## 5. Residue a reviewer should know about
 

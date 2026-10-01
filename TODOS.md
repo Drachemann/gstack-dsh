@@ -26,16 +26,18 @@ misleads or costs a workaround; **polish** = cosmetic.
   `test/dsh-plugin-suite-wiring.test.ts` pins it. NEVER add `.dsh/plugin/test` to TEST_ROOTS.
 - **Risk-gate listener + `classifyToolCall` had zero coverage** (blocker). Fixed: 7 tests drive the real
   `tools/pre-execute` handler through a real `on:` harness.
+- **The preamble advised bare `/ship` while dsh registers only `gstack-ship`** (INST-2, originally filed as
+  "bare names are missing"). **The first framing was wrong:** `gstack-*` is deliberate collision avoidance
+  in dsh's registry, which de-duplicates on the frontmatter `name` (`hosts/dsh.ts:62`,
+  `frontmatter.nameField: 'external'`), so bare names must not come back. The real defect was the STATUS
+  line: `bin/gstack-skill-start` echoed the `skill_prefix` config value (`false` here) and the preamble's
+  own rule then told the model to offer `/ship` in every project. Fixed: the render passes
+  `GSTACK_SKILLS_PREFIXED=true` as a per-command env assignment for external-name hosts, and the launcher
+  lets it win. Verified from a foreign project: `SKILL_PREFIX: true`. Every other host's bytes are
+  unchanged.
 
 ### Blockers (open)
 
-- **Bare `/ship`, `/review`, `/qa` do not exist for any project but this checkout** (INST-2). dsh scans
-  project `.dsh/skills` (rank 100), project `.agents/skills` (200), `$DSH_HOME/skills` (400),
-  `$DSH_AGENTS_HOME/skills` = `~/.agents/skills` (500). `setup --host dsh` links only rank 400, with
-  **namespaced** names. The 55 bare names come from the rank-200 project root `.agents/skills`, which is
-  gitignored and untracked, so a fresh clone has none. Fix: emit a bare-name dsh render and link it into
-  rank 500, or document `/gstack-*` as the only cross-project form. Effort M. Priority P1.
-  **Owning files:** `setup` (dsh arm), `hosts/dsh.ts`, `scripts/resolvers/preamble/generate-preamble-bash.ts`.
 - **gbrain memory from a foreign project writes into the gstack-dsh code mirror** (MEM-3). MCP `remember`
   without `source_id` binds to `gstack-code-gstack-dsh-mirror`; `source_id: "default"` returns
   `scope_denied`. There is no per-project source. Fix: a per-project source (or an explicit refusal when

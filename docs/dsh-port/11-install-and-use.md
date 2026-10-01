@@ -82,6 +82,45 @@ So:
 The fix is either a bare-name dsh render linked into rank 500, or accepting
 `/gstack-*` as the documented form. Filed in TODOS.md as a P1.
 
+### Resolution (corrected 2026-10-02): the prefix is deliberate; the preamble was lying
+
+The first pass filed this as "bare names are missing — add them". That was the
+wrong call, and `hosts/dsh.ts:62` says why:
+
+```ts
+// dsh's registry keys skills by the frontmatter `name` (it validates and
+// de-duplicates on it) and its `/name` gesture matches that same value, so
+// the field must carry the host's external name (`gstack-ship`) rather than
+// the template's bare name (`ship`). Without this, every generated skill
+// would collide with a same-named skill from any other installed pack.
+nameField: 'external',
+```
+
+So `gstack-*` is intentional collision avoidance in dsh's registry, and
+`externalSkillName()` (`scripts/external-skill-names.ts`) prefixes unconditionally.
+Bare names must **not** come back.
+
+The actual defect was the STATUS line. `bin/gstack-skill-start` read
+`skill_prefix` from `~/.gstack/config.yaml` (here `false`) and echoed
+`SKILL_PREFIX: false`, which made the preamble's own rule
+("If `SKILL_PREFIX` is `"true"`, suggest/invoke `/gstack-*` names") tell the model
+to offer **`/ship`** — a skill dsh never registers, in any project. The install and
+the preamble disagreed.
+
+Fixed: `generate-preamble-bash.ts` passes `GSTACK_SKILLS_PREFIXED=true` as a
+per-command env assignment for hosts that declare
+`frontmatter.nameField: 'external'`, and the launcher lets it win over the config.
+Verified from a foreign project with `skill_prefix: false`:
+
+```
+SKILL_START_PROTO: 1
+SKILL_PREFIX: true
+```
+
+Every other host keeps its template names and its rendered bytes byte-for-byte
+(the assignment is emitted only for the external-name host), pinned by tests in
+`test/gen-skill-docs.test.ts` and `test/gstack-skill-start.test.ts`.
+
 ---
 
 ## 4. What works from a foreign project (verified)
@@ -110,15 +149,17 @@ exits 0. Nothing loads, which is honest for a machine with no install.
 |---|---|---|
 | `/gstack-make-pdf` printed `MAKE_PDF_NOT_AVAILABLE (P='/pdf')` in every project but the checkout — `$GSTACK_MAKE_PDF` was never defined and `make-pdf` was not linked | preamble emits `GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"`; `make-pdf` added to both asset lists | `scripts/resolvers/preamble/generate-preamble-bash.ts`, `setup`, `hosts/dsh.ts` |
 | `/gstack-upgrade` classified the install `vendored-global` and would clone the **upstream** repo (no dsh host) over it | dsh-only `{{DSH_UPGRADE_GUARD}}` detects the symlink farm, prints the real checkout path, and tells the model to skip Step 4 | `scripts/resolvers/dsh-upgrade-guard.ts`, `gstack-upgrade/SKILL.md.tmpl` |
+| the preamble advised bare `/ship` in every project while dsh registers only `gstack-ship` — the config `skill_prefix` was echoed without the host's external-name rule | the render passes `GSTACK_SKILLS_PREFIXED=true` for `nameField: 'external'` hosts; the launcher lets it win over the config | `scripts/resolvers/preamble/generate-preamble-bash.ts`, `bin/gstack-skill-start` |
 
-Both are covered by tests, and the two `codex`/`factory` ship goldens were
-refreshed for the one-line preamble addition.
+All three are covered by tests. The two `codex`/`factory` ship goldens were
+refreshed for the one-line `GSTACK_MAKE_PDF` preamble addition; the
+`GSTACK_SKILLS_PREFIXED` line is emitted only for the external-name host, so no
+other host's bytes moved.
 
 ---
 
 ## 6. Known gaps that are not fixed
 
-- **Bare `/ship` does not resolve outside this checkout** (section 3). P1.
 - **`setup --host dsh` from a foreign project installs nothing into it.** It prints
   `project skills: <checkout>/.dsh/skills`, which reads as "installed here". The
   install is user-scoped by design; only the message is misleading. P2.
