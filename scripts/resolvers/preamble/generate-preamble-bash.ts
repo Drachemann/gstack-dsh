@@ -41,6 +41,15 @@ GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 `
     : '';
   const brainHealthFlag = ctx.host === 'gbrain' || ctx.host === 'hermes' ? ' --brain-health' : '';
+  // A host that declares `frontmatter.nameField: 'external'` registers every
+  // skill under an already-prefixed name, so the user's `skill_prefix`
+  // preference cannot apply: the installed skill is `gstack-ship` either way.
+  // Passed as a per-command env assignment (not a bare shell assignment) so the
+  // launcher actually inherits it, and only for those hosts, which keeps every
+  // other host's rendered bytes identical.
+  const skillsPrefixedEnv = hostConfig.frontmatter?.nameField === 'external'
+    ? 'GSTACK_SKILLS_PREFIXED=true '
+    : '';
   // A leading ~ inside double quotes never expands in bash — the primary path
   // would silently fail -x and every run would take the fallback. Interpolate
   // through $HOME instead (env-var hosts already use $GSTACK_BIN).
@@ -57,7 +66,7 @@ GSTACK_MAKE_PDF="$GSTACK_ROOT/make-pdf/dist"
 \`\`\`bash
 ${runtimeRoot}_SS="${shellPath(ctx.paths.binDir)}/gstack-skill-start"
 [ -x "$_SS" ] || _SS="${shellPath(ctx.paths.localSkillRoot)}/bin/gstack-skill-start"
-"$_SS" --skill "${ctx.skillName}" --model "${ctx.model ?? 'none'}" --parent-pid "$PPID"${brainHealthFlag} \\
+${skillsPrefixedEnv}"$_SS" --skill "${ctx.skillName}" --model "${ctx.model ?? 'none'}" --parent-pid "$PPID"${brainHealthFlag} \\
   || echo "SKILL_START: unavailable — stale install; run ./setup or /gstack-upgrade (preamble degraded, continue the user's task)"
 \`\`\`
 

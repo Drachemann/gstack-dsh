@@ -87,6 +87,16 @@ _BRANCH=$(git branch --show-current 2>/dev/null | tr -cd 'a-zA-Z0-9._/-')
 _BRANCH=${_BRANCH:-unknown}
 echo "BRANCH: $_BRANCH"
 _SKILL_PREFIX=$("$_BIN/gstack-config" get skill_prefix 2>/dev/null || echo "false")
+# A host whose render registers skills under an EXTERNAL, already-prefixed name
+# ignores the `skill_prefix` preference: `gstack-ship` is the installed skill
+# whether the config says true or false. That is deliberate on dsh
+# (hosts/dsh.ts `frontmatter.nameField: 'external'`) because dsh's registry
+# de-duplicates on the frontmatter name, so a bare `ship` would collide with any
+# other installed pack's `ship`. Reporting the config value on such a host tells
+# the model to invoke `/ship`, which is never registered there. The render
+# passes GSTACK_SKILLS_PREFIXED=true for those hosts so the STATUS line matches
+# what is actually installed.
+if [ "${GSTACK_SKILLS_PREFIXED:-}" = "true" ]; then _SKILL_PREFIX=true; fi
 echo "PROACTIVE: $_PROACTIVE"
 echo "PROACTIVE_PROMPTED: $_PROACTIVE_PROMPTED"
 echo "SKILL_PREFIX: $_SKILL_PREFIX"
