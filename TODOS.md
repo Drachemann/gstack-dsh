@@ -100,43 +100,60 @@ _None. MEM-3 was the last one; see its resolution below._
   disk — plausible, not proven. A second independent signal of the same class: `list_agents` still reports
   `openrouter/auto-beta` for the Lead even though that id was removed from the profile catalog at 08:23:09.
 
-### Friction (open)
+### Friction and polish (all resolved in the 2026-10-02 batch)
 
-- **`setup --host dsh` run from a foreign project installs nothing into it** (INST-1/INST-7). It regenerates
-  the gstack checkout's `.dsh/skills` and re-links `$DSH_HOME/skills`, then prints
-  `project skills: /home/matt/src/gstack-dsh/.dsh/skills` while cwd is the foreign repo. The only install
-  path is "run setup inside the checkout". Fix: print the invoking-project path or say plainly that dsh
-  installs user-scoped. Effort S. Priority P2. **Owning files:** `setup` dsh arm.
-- **The runtime root is a symlink farm into the checkout** (FLOW-4a). All ~20 assets are symlinks, so moving
-  or deleting the checkout breaks the install; `freeze/bin/freeze-state.sh` additionally relies on
-  `../../careful/bin/hook-extract.sh` resolving through a symlink `..` (it is not in the linked set). Fix:
-  add `careful` to the asset list and state the "checkout must stay" constraint in install docs. Effort S.
-  Priority P2. **Owning files:** `setup` asset loop, `hosts/dsh.ts`.
-- **`/gstack-ship` has no dry walk** (FLOW-2). Every gate is prose plus real `git`/`gh` commands; the push
-  site is unconditional (`ship/SKILL.md:1113`). A `--dry-run` convention would make the flow lane testable.
-  Effort M. Priority P2.
-- **A cookie-imported browse daemon blocks local-HTML renders** (ENG-2). `/diagram` and `/make-pdf` fail
-  with a message whose fix is `$B stop`. Fix: auto-restart or pre-flight the cookie state. Effort S.
-  Priority P3. **Owning files:** `lib/aside-render.ts:499-500`.
-- **`browse load-html file:///abs/path` silently renders `about:blank`** (ENG-4). It expects a bare path;
-  a `file://` URL fails with a confusing message and exit 0. No shipped skill does this, but a hand-written
-  call gets a silently wrong result. Fix: reject the scheme explicitly. Effort S. Priority P3.
-  **Owning files:** `browse/src/*` (load-html validation).
-- **Same-origin clones share one checkpoints dir** (MEM-2). Intended for Conductor worktrees; also true for
-  separate clones, so `/context-restore` can load another clone's checkpoint. Worth a note in the skill.
-  Effort XS. Priority P3. **Owning files:** `bin/gstack-slug`, `gstack-context-restore/SKILL.md`.
-- **Semantic search silently degrades to weak hits** (MEM-4). From a foreign project, `search` returns
-  gstack-dsh code pages with `"evidence":"weak_semantic"` and no warning that the brain holds nothing for
-  this project. Fix: surface the degraded state in the skill's brain block. Effort S. Priority P3.
-- **docs/dsh-port/09 section 6 is stale** (FLOW-4b). It says `/gstack-careful` is "documentation of intent,
-  not an active gate"; the render writes `~/.gstack/careful.json` and the plugin risk gate reads it
-  (verified: `readCareMode()` to `MODE=careful`). Fixed by an appended correction in section 6. Effort XS.
+Eight items were closed together, one lane per concern, and the Lead verified every
+lane's claims against the integrated tree (regen, serial build, live install). Tests
+named here passed on the merged result.
 
-### Polish (open)
+- **`setup --host dsh` from a foreign project read as "installed here"** (INST-1/INST-7).
+  The summary no longer prints `project skills: <checkout>/.dsh/skills` as if it were the
+  invoking project. It names the user-scoped root, labels the other path as the checkout's
+  self-hosted runtime root, and branches on the real cwd: verified from `/tmp/dogfood-install`,
+  which printed `invoked from: /tmp/dogfood-install — nothing was written into that project
+  (dsh installs are user-scoped)` and left no `.dsh` behind. `setup:2803-2816`; behavior unchanged.
+- **The `careful` asset was not linked into the dsh runtime root** (FLOW-4a). `freeze/bin/freeze-state.sh`
+  — called directly by `/gstack-freeze` — sources `../../careful/bin/hook-extract.sh` under
+  `set -euo pipefail`, and only worked because `..` resolved through the `freeze` symlink; a
+  copy-based runtime root would break freeze/unfreeze/guard. Added to both asset lists
+  (`setup:2104-2116`, `hosts/dsh.ts` `globalSymlinks`), and the stale "hook-only" rationale
+  in `hosts/dsh.ts` was corrected. Verified live: `~/.dsh/skills/gstack/careful -> <checkout>/careful`,
+  `hook-extract.sh` reachable. The config↔setup parity test in `test/host-config.test.ts` pins both lists.
+- **`/gstack-ship` had no dry walk** (FLOW-2). Added an additive `--dry-run` contract to
+  `ship/SKILL.md.tmpl`: reading steps run, every writing step (merge, bump, CHANGELOG, TODOS, docs,
+  commits, push + guard install, PR, metrics) reports instead, and the run closes with the verbatim
+  would-be commands. The push site is gated. 48 insertions, 0 deletions, nothing renumbered; the
+  non-dry path executes identically, and the codex/factory/claude ship goldens were refreshed in the
+  same commit (48 lines each). Rendered ship eager tokens 19,300 vs the 20,478 ceiling.
+- **A cookie-imported browse daemon blocked local-HTML renders** (ENG-2). `renderWithBrowse` now retries
+  the spec once on a **throwaway** daemon (own `BROWSE_STATE_FILE` + `CHROMIUM_PROFILE`) when the failure
+  is the cookie page-JS block, and deliberately leaves the project daemon alone — restarting it would
+  discard the user's imported logins (browse #2219). The throwaway daemon is stopped, pid-waited, and its
+  scratch removed. Reproduced against a real Chromium daemon with a real `cookie-import`: before
+  `ok:false` + "restart it (`$B stop`)", after `ok:true` with the PNG written and the shared daemon's
+  cookie intact. `test/aside-render.test.ts` 66 pass, including the pinned `$B stop` contract.
+- **`browse load-html file:///abs/path` silently produced `about:blank`** (ENG-4). The scheme is now
+  rejected loudly. Verified against the **compiled** binary: `file:///tmp/lh.html` → exit 1 with
+  "load-html: … is a URL, not a path. load-html takes a filesystem path — use 'browse load-html <file.html>'
+  (or 'browse goto …')"; bare path → exit 0; no arg → usage + exit 1; nonexistent → exit 1.
+  A first test appeared to show the old behavior — it had hit a **stale daemon**; the result above is
+  from a fresh one.
+- **`design --help` / `browse --version` printed `Unknown command` first** (ENG-3). Informational
+  spellings short-circuit before the unknown-command branch. Verified on the compiled binaries:
+  `browse --version` → `browse 1.91.10.0` exit 0; `design --help` → usage, stderr 0 bytes, exit 0;
+  `design bogus` still exits 1.
+- **Same-origin clones share one checkpoints dir** (MEM-2). `context-restore/SKILL.md.tmpl` now says the
+  directory is keyed by origin (`~/.gstack/projects/<owner-repo>/checkpoints`), not by clone path, so a
+  restore can surface a sibling clone's state — and how to tell. Behavior unchanged.
+- **Semantic search silently degraded to weak hits** (MEM-4). The `GBRAIN_CONTEXT_LOAD` block now says a
+  non-empty result set is not recall: unrelated pages come back flagged `"evidence":"weak_semantic"`
+  (cosine ~0.44) with no warning, and that — plus hits naming none of this project's files/symbols/decisions,
+  zero results, and non-zero exits — is a degraded empty search to state plainly rather than present as
+  prior context. `GBRAIN_SAVE_RESULTS` was left byte-unchanged.
 
-- **`design --help` / `browse --version` print `Unknown command: ...` before the usage text** (ENG-3).
-  Exit 0, but it reads like a failure. Effort XS. Priority P3. **Owning files:** `design/src/*`,
-  `browse/src/commands.ts`.
+**Residual from this batch:** the binary behaviors above are verified on Linux; the ENG-2 retry was
+exercised on a real Chromium daemon, not on macOS/Aside. Verified-good list below is still the standing
+record of what works with no Aside.
 
 ### Verified good on Linux with no Aside (no action)
 

@@ -160,17 +160,29 @@ other host's bytes moved.
 
 ## 6. Known gaps that are not fixed
 
-- **`setup --host dsh` from a foreign project installs nothing into it.** It prints
-  `project skills: <checkout>/.dsh/skills`, which reads as "installed here". The
-  install is user-scoped by design; only the message is misleading. P2.
-- **gbrain memory from a foreign project writes into the gstack-dsh code mirror.**
-  `remember` without `source_id` binds to `gstack-code-gstack-dsh-mirror`; an
-  explicit `source_id: "default"` returns `scope_denied`. A foreign project needs
-  its own symlink-free mirror source (the `~/.gbrain/code-mirrors/gstack-dsh-git`
-  recipe). P1.
-- **`/gstack-ship` cannot be dry-walked.** Every gate is prose plus real
-  `git`/`gh` commands; the push site is unconditional. P2.
-- **A cookie-imported browse daemon blocks local-HTML renders.** Fix is `$B stop`;
-  the error says so. P3.
-- **Agent Teams teammates could not execute a turn** in the session that ran these
-  lanes; all four lanes were run by the Lead. Harness-side. P1.
+- **`setup --host dsh` from a foreign project does not install into it.** That is by design
+  (dsh installs are user-scoped), and the summary now says so explicitly instead of printing
+  a checkout path that read as "installed here": it names the user-scoped root, labels the
+  other path as the checkout's self-hosted runtime root, and states
+  `invoked from: <cwd> — nothing was written into that project`. Verified from
+  `/tmp/dogfood-install`. The user-scoped design itself remains: a project-local install still
+  requires running setup inside the checkout.
+- **gbrain memory is fixed on the CLI path, not the MCP path.** Memory writes by gstack skills
+  now route to a configured source (`gbrain_memory_source` → `--source-id`), and
+  `gstack-brain-matt` exists at `~/.gbrain/memory`; verified end-to-end (the write reports
+  `"source_id": "gstack-brain-matt"` and the code mirror no longer grows). What remains is
+  gbrain's own grant model: the MCP server dsh spawns binds its write grant to the cwd repo's
+  source, so over MCP only the code mirror is visible and `remember(source_id: <memory source>)`
+  returns `scope_denied`. A raw MCP `remember` therefore still lands in the code mirror.
+  Re-pointing the mount's cwd at the memory dir would likely move the grant but would also swap
+  the MCP surface away from the code mirror, losing MCP code-intelligence reads — left to the
+  operator, documented in TODOS.md.
+- **`/gstack-ship`'s dry walk is prose, not a tested path.** The `--dry-run` contract is in the
+  template and gates every writing step, but no live dry run has been executed end to end, and
+  step 14.5's read-only audit depends on the `/document-release` child cooperating.
+- **The ENG-2 render retry was verified on Linux with a real Chromium daemon, not on
+  macOS/Aside.** The Aside path is untouched by that change.
+- **Agent Teams teammates could not execute a turn** in the session that ran the first four
+  lanes; all four were run by the Lead. That was diagnosed and fixed (a stale gemini model id on
+  the deepseek provider — see TODOS.md HARNESS-1), and this batch ran as five delegated lanes.
+
