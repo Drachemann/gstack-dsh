@@ -1,0 +1,32 @@
+{
+  "name": "gstack-dsh",
+  "version": "1.0.0",
+  "private": true,
+  "description": "gstack's software-engineering methodology as native DeepSeek Harness primitives: the seven-stage sprint loop with Jev-gated transitions, a Jev decision layer (jev_decide), a pre-execution risk gate, and a rationed second-opinion escalation policy.",
+  "type": "module",
+  "main": "./lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./jev": "./lib/jev.js",
+    "./pipeline": "./lib/pipeline.js",
+    "./pipeline-store": "./lib/pipeline-store.js",
+    "./escalation": "./lib/escalation.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test test/"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.0",
+    "@deepseek-ai/dsh-tools": ">=0.2.0-rc.1 <0.3.0"
+  },
+  "license": "MIT"
+}

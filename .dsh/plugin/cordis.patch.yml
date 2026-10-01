@@ -1,0 +1,63 @@
+# gstack-dsh bundle patch.
+#
+# Registers the gstack decision layer as one row on the host tools registry.
+#
+# Note on skills: this patch deliberately does NOT point `skill-filesystem` at
+# anything. The gstack skills are rendered into this project's `.dsh/skills`
+# tree, which the shipped filesystem skill provider already scans as its
+# highest-ranked project root (`{projectRoot}/.dsh/skills`, source `project-dsh`)
+# and watches live. Registering a second root here would double-register every
+# skill and fight the ownership rules in the skill registry.
+#
+# Note on the model list: Jev runs through this plugin's own client pinned to
+# OpenCode's System One endpoint, so it needs no `llm-pi-ai` provider entry.
+#
+# The escalation routes (opencode-free / openrouter-free / openrouter-paid) are
+# NOT declared here, and nothing in this bundle declares them. The plugin reads
+# whichever provider routes the profile has actually registered — via
+# `ctx.llm.listProviders()` + `listModels()` — and resolves a free model id from
+# that live list at dispatch time. `config.escalation.discovered` exists only to
+# pin the list explicitly; leave it unset to use the live registry.
+#
+# Consequence worth knowing: a provider route the profile has not configured
+# simply offers no models, so that escalation tier reports "no eligible model"
+# rather than failing. Declaring the routes (an `llm-pi-ai` entry carrying the
+# OpenCode and OpenRouter model lists) is what would make every free tier
+# reachable; until then only the tiers the profile already provides can resolve.
+- insert:
+    - id: gstack-dsh
+      name: gstack-dsh
+      config:
+        enabled: true
+        # OpenCode System One. `gstack-dsh/jev.js` refuses any host but
+        # opencode.ai, so this cannot silently drift to TypeSafe-direct or
+        # OpenRouter. The tier is chosen by `model`: the PAID `jev-1.13` is the
+        # default because the free tier rate-limits enough to block a stage gate
+        # from ever resolving. Set `jev-1.13-free` to run on credit-free quota.
+        baseUrl: https://opencode.ai/zen/v1/systemone
+        model: jev-1.13
+        # Pipeline state location — NOT set here on purpose, because the value is
+        # per-project and this patch is shared. It MUST be supplied to get
+        # persistence: at load the harness process's cwd is its own home
+        # (~/.dsh), not the session's project, so with no `stateDir` the plugin
+        # cannot find the project and reports persistence unavailable rather
+        # than guessing (runs still work; they just do not survive a session).
+        #
+        #   stateDir: /absolute/path/to/your/project/.dsh
+        #
+        # Set it on the `gstack-dsh` row in the profile patch, which is applied
+        # after this bundle. An absolute path is the reliable form; the profile
+        # may also use the loader's `!!js` helpers if it has one for the project
+        # root. `gstack_pipeline status` reports the resolved path and whether
+        # the load succeeded, so this is checkable after a boot.
+
+        # Pre-execution risk classification. Set false to bypass the gate while
+        # keeping every other capability.
+        riskGate: true
+        # Confidence a pipeline stage needs before it may advance.
+        gateThreshold: 0.7
+        budget:
+          perDecision: 1
+          perStage: 2
+          perSession: 6
+          paidFallbacksPerSession: 1

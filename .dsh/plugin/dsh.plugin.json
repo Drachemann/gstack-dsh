@@ -1,0 +1,21 @@
+{
+  "id": "gstack-dsh/gstack-dsh",
+  "version": "1.0.0",
+  "main": "./lib/index.js",
+  "description": "gstack's sprint methodology as DSH primitives: Jev-gated seven-stage pipeline, jev_decide decision layer, pre-execution risk gate, and rationed second-opinion escalation. Ships gstack's full skill catalog into this project's .dsh/skills tree.",
+  "engines": {
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "contributes": {
+    "tools": [
+      "jev_decide",
+      "gstack_pipeline",
+      "gstack_route_skill",
+      "gstack_escalate"
+    ],
+    "hooks": [
+      "tools/pre-execute"
+    ],
+    "skills": "dependency: .dsh/skills (project-dsh root, rendered by gen-skill-docs --host dsh)"
+  }
+}
