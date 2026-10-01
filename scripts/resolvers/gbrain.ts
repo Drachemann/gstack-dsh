@@ -452,8 +452,12 @@ would depend on the PATH dsh inherited rather than the PATH you have now.
 DSH_MCP_JSON="\${DSH_HOME:-$HOME/.dsh}/mcp.json"
 GBRAIN_BIN=$(command -v gbrain)
 [ -z "$GBRAIN_BIN" ] && GBRAIN_BIN="$HOME/.bun/bin/gbrain"
+# Set this to the embedding provider's env var from Step 4.0 — for example
+# OPENROUTER_API_KEY, OPENAI_API_KEY or VOYAGE_API_KEY. Leave it EMPTY for a
+# local provider (ollama, lmstudio) or an explicit keyless brain.
+GBRAIN_KEY_VAR="\${GBRAIN_KEY_VAR:-}"
 mkdir -p "$(dirname "$DSH_MCP_JSON")"
-DSH_MCP_JSON="$DSH_MCP_JSON" GBRAIN_BIN="$GBRAIN_BIN" node --input-type=module -e '
+DSH_MCP_JSON="$DSH_MCP_JSON" GBRAIN_BIN="$GBRAIN_BIN" GBRAIN_KEY_VAR="$GBRAIN_KEY_VAR" node --input-type=module -e '
 import { readFileSync, writeFileSync } from "node:fs";
 const p = process.env.DSH_MCP_JSON;
 let doc = {};
@@ -476,12 +480,33 @@ if (doc === null || typeof doc !== "object" || Array.isArray(doc)) {
   process.exit(1);
 }
 const servers = (doc.mcpServers && typeof doc.mcpServers === "object" && !Array.isArray(doc.mcpServers)) ? doc.mcpServers : {};
-servers.gbrain = { type: "stdio", command: process.env.GBRAIN_BIN, args: ["serve"] };
+// dsh does NOT hand its own environment to a stdio MCP server, so an API key
+// visible in the dsh process is still invisible to the spawned gbrain server.
+// The brain then degrades SILENTLY: vector search falls back to keyword-only
+// and the chat/expansion models report "no usable provider key". dsh expands
+// the placeholder form below at mount time, so the secret stays in the shell
+// environment and never rests in this file. An empty GBRAIN_KEY_VAR (local
+// provider, or an explicitly chosen keyless brain) writes no env block at all.
+servers.gbrain = Object.assign(
+  { type: "stdio", command: process.env.GBRAIN_BIN, args: ["serve"] },
+  process.env.GBRAIN_KEY_VAR
+    ? { env: { [process.env.GBRAIN_KEY_VAR]: "\${" + process.env.GBRAIN_KEY_VAR + "}" } }
+    : {}
+);
 doc.mcpServers = servers;
 writeFileSync(p, JSON.stringify(doc, null, 2) + "\\n");
 console.log("registered gbrain (stdio) in " + p);
 '
 \`\`\`
+
+**Why the \`env\` block matters.** dsh starts a stdio server with its own
+environment, not yours, so a key exported in your shell — or present in the dsh
+process — is invisible to \`gbrain serve\` unless it is named here. Without it the
+brain still starts and still answers keyword queries, which is what hides the
+failure: vector search silently degrades to keyword-only and the chat/expansion
+models fall back. The verify step below prints \`env\`, so confirm the placeholder
+is present. If it is missing, expect
+\`[gbrain] vector search unavailable (missing_env)\` in the session console.
 
 ### Both paths — verify, then restart
 
@@ -492,7 +517,7 @@ DSH_MCP_JSON="\${DSH_HOME:-$HOME/.dsh}/mcp.json"
 DSH_MCP_JSON="$DSH_MCP_JSON" node -e '
 const doc = JSON.parse(require("node:fs").readFileSync(process.env.DSH_MCP_JSON, "utf8"));
 const row = doc.mcpServers && doc.mcpServers.gbrain;
-console.log(row ? "gbrain entry: " + JSON.stringify({ type: row.type, url: row.url, command: row.command, args: row.args }) : "gbrain entry: MISSING");
+console.log(row ? "gbrain entry: " + JSON.stringify({ type: row.type, url: row.url, command: row.command, args: row.args, env: row.env }) : "gbrain entry: MISSING");
 '
 # Shadow check — dsh drops a shadowed entry with no error, so prove none exists.
 for f in "$(git rev-parse --show-toplevel 2>/dev/null)/.dsh/mcp.yml" \\

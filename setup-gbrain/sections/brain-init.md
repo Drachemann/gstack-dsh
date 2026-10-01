@@ -3,6 +3,78 @@
 Path-specific. Run ONLY the sub-section below for the path picked in Step 2
 (or the Switch flow when Step 2 chose engine migration).
 
+### Step 4.0: Embedding provider pre-flight — run BEFORE any engine below
+
+Every path below ends in `gbrain init`. Choose the embedding provider from
+gbrain's own capability surface, never from a list written into this document:
+gbrain gains and retires providers, so a hardcoded list goes stale silently.
+
+```bash
+gbrain providers list
+gbrain providers explain --json
+```
+
+`providers list` reports each provider's tier, whether it can do EMBED / EXPAND
+/ CHAT, and a STATUS of `✓ ready` or `✗ missing <ENV_VAR>`. `providers explain
+--json` adds `env_detected` (booleans only — it never prints a key),
+`local_probes` (whether a local server is actually reachable), and `options[]`
+carrying the model id and **vector dimensions** per touchpoint. Take the
+dimensions from that JSON; never assume 1536 or 1024.
+
+Two things `providers list` does not tell you:
+
+- `✓ ready` means the env var is **set**, not that the key works. A wrong or
+  expired key still reads ready and then fails at the first embed. Step 9's
+  smoke test is what catches that.
+- For a local provider (ollama, lmstudio, llama-server), `ready` means gbrain
+  expects that server, not that it is running. Cross-check
+  `local_probes.<id>.reachable` before choosing it.
+
+**Branch on the result:**
+
+1. If an EMBED-capable provider is ready (or its key is present), pass it to
+   `gbrain init` explicitly with the dimensions from `providers explain --json`,
+   and reuse that choice in the path below.
+2. If NO embedding provider is ready, do **not** run a bare `gbrain init` and
+   continue. That produces a brain which looks healthy and is silently
+   keyword-only. Ask the user (AskUserQuestion) which route to take, offering
+   only what gbrain itself reports:
+   - **Local ollama** — free, no key, nothing leaves the machine. Requires ollama
+     installed and running; confirm `local_probes.ollama.reachable`.
+   - **OpenRouter** — needs `OPENROUTER_API_KEY` present in the environment.
+   - **Keyless, explicitly chosen** — a legitimate labelled option, not a
+     failure: search stays keyword-only, with no expansion and no chat model.
+     Everything that does not need a vector still works.
+   Quote the per-role cost gbrain reports for each paid provider (it is in the
+   explain JSON) instead of estimating.
+3. Record which provider was chosen — including an explicit keyless choice — in
+   the Step 8 block, so the next session knows which brain it is talking to.
+
+**Two traps that cost real debugging time:**
+
+- `gbrain config set embedding_dimensions <n>` is a **silent no-op**: the field
+  lives in the file plane. Dimensions only take effect through
+  `gbrain init --embedding-dimensions <n>`.
+- `gbrain config set` writes the **database** plane; `~/.gbrain/config.json` is
+  the **file** plane and is what `init` writes. Reading that file back with `jq`
+  after a `config set` shows a stale value and looks like a failed write. Check
+  with `gbrain config show`, never by reading the file.
+
+### Automatic fact extraction is version-gated, not host-gated
+
+`gbrain extract_facts` returns `skipped: "extraction_unavailable"` when no
+servable extraction model is reachable. On gbrain **< 0.60.20.0** it additionally
+demanded an OpenAI or Anthropic key even with `extraction_model` set to another
+provider; **0.60.20.0** fixed that (#5735 — the backstop uses the extraction
+model the brain resolves). So check `gbrain --version` before calling this a
+platform limitation.
+
+What the user loses without a reachable extraction model: automatic fact
+extraction only. What still works: search, query expansion, chat, and the
+agent-authored `remember` verb (one claim per call, provenance required,
+`visibility: "private"` unless the fact is genuinely world-readable). Never
+describe a keyless brain as broken; describe exactly which capability is off.
+
 ### Path 1 (Supabase, existing URL)
 
 Source the secret-read helper, collect URL with `read -s` + redacted preview:
