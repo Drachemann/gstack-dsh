@@ -124,26 +124,51 @@ Or target a specific agent with `./setup --host <name>`:
 | OpenClaw | `--host openclaw` | ACP spawn pointers + methodology artifacts via `gen:skill-docs --host openclaw` + the instruction-only digest below (full guide: [docs/OPENCLAW.md](docs/OPENCLAW.md)) |
 | Hermes | `--host hermes` | Methodology artifacts via `gen:skill-docs --host hermes` + the instruction-only digest below |
 | GBrain (mod) | `--host gbrain` | Brain-aware skill variants, shipped from the GBrain repo |
-| DeepSeek Harness | `--host dsh` | No install step: renders skills into the project's own `.dsh/skills/gstack-*/SKILL.md`, which the Harness discovers and watches live |
+| DeepSeek Harness | `--host dsh` | Renders skills into `.dsh/skills` **and** builds the runtime roots they execute against — the project's own and the user-level `~/.dsh/skills`, which the Harness discovers and watches live |
 
-**DeepSeek Harness (dsh)** is project-scoped rather than machine-global, so it
-needs no installer. The Harness's own filesystem skill provider scans
-`{projectRoot}/.dsh/skills` as its highest-ranked root and watches it live, so
-writing the rendered skills there *is* the install — they load on the next
-session open with no profile edit and no global write:
+**DeepSeek Harness (dsh)** discovers skills from `{projectRoot}/.dsh/skills` (its
+highest-ranked root) and `<dshHome>/skills` (the user root), and watches both
+live — so a rendered skill reaches a session with no profile edit and no
+restart:
 
 ```bash
-bun run gen:skill-docs --host dsh
+./setup --host dsh
 ```
 
-`./setup --host dsh` prints that instruction rather than installing anything, and
-`./setup --host all` renders the dsh tree alongside every other host. Frontmatter
-is translated for this host: `triggers` becomes `whenToUse`, `CLAUDE.md` becomes
-`AGENTS.md`, and `AskUserQuestion` becomes `ask_user_question`. Note one
-capability **loss** rather than a translation: dsh has no per-skill tool
-allowlist, so `allowed-tools` is dropped. The cross-harness outside-review
-resolvers are suppressed here too — dsh ships its own Jev-gated second-opinion
-policy (the `gstack-dsh` plugin) in their place.
+That renders the tree and then builds a runtime root for each discovery path.
+The runtime root matters: every gstack skill's preamble resolves `$GSTACK_ROOT`
+and calls `$GSTACK_ROOT/bin/*`, and a bare render writes only `SKILL.md` files —
+so rendering alone leaves all 72 referenced asset paths missing and every skill
+silently degraded. The user-level root also gets a link to each rendered skill,
+which is what makes gstack available in every dsh project on the machine.
+
+Frontmatter is translated for this host: `triggers` becomes `whenToUse`, the
+frontmatter `name` is the external one (`gstack-ship`) because dsh keys its
+registry on it, `CLAUDE.md` becomes `AGENTS.md`, and `AskUserQuestion` becomes
+`ask_user_question`. Claude-only tool names are rewritten (`exit_plan_mode`), and
+dispatch sites stop spelling `subagent_type`, which dsh's `subagent` does not
+accept. Note one capability **loss** rather than a translation: dsh has no
+per-skill tool allowlist, so `allowed-tools` is dropped.
+
+Only the two resolvers that compose a Codex invocation are suppressed. The
+review army, the adversarial pass and the design outside voices all dispatch
+in-host subagents, which dsh has natively, so they stay. dsh additionally ships
+its own Jev-gated second-opinion policy as the `gstack-dsh` plugin.
+`/setup-gbrain` registers the brain through dsh's watched MCP layer
+(`$DSH_HOME/mcp.json`) rather than `claude mcp add`.
+
+**Installing the dsh plugin.** The plugin is a DSH bundle, separate from the
+skill tree above:
+
+```bash
+# from a clone of this repo, into the profile you run
+dsh plugin --profile <profile> add link:$PWD/.dsh/plugin
+```
+
+It contributes `jev_decide`, `gstack_pipeline`, `gstack_route_skill`,
+`gstack_escalate`, and a pre-execution tool-risk gate. Verify it locally with
+`node --test .dsh/plugin/test/` (65 tests) and exercise the live paths with
+`node .dsh/plugin/scripts/verify-live.mjs`.
 
 Outside reviews require the selected CLI to be installed and authenticated: Claude Code when using gstack in Codex, or Codex on other harnesses. External harnesses discover these commands as `/gstack-claude-code` and `/gstack-codex`; each harness omits its own wrapper. Explicit provider requests keep that provider. The existing `codex_reviews` setting controls automatic outside reviews where supported, regardless of the provider selected.
 
