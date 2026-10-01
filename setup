@@ -2775,9 +2775,16 @@ if [ "$INSTALL_DSH" -eq 1 ]; then
   # preamble's local probe (bin/gstack-skill-start) must resolve there.
   create_dsh_runtime_root "$SOURCE_GSTACK_DIR" "$DSH_RENDER_GSTACK" "$DSH_RENDER"
 
-  # Global: every other project on this machine.
+  # Global: every other project on this machine. Guard the runtime root the way
+  # the Cursor/Codex/Kiro arms do: `create_dsh_runtime_root` rm -rf's entries
+  # under it, so a real directory gstack does not own must never be wiped to
+  # make room for our links.
   mkdir -p "$DSH_SKILLS"
-  create_dsh_runtime_root "$SOURCE_GSTACK_DIR" "$DSH_GSTACK" "$DSH_RENDER"
+  if _sidecar_root_user_owned "$DSH_GSTACK"; then
+    echo "  left in place (existing dir is not gstack-managed): $DSH_GSTACK" >&2
+  else
+    create_dsh_runtime_root "$SOURCE_GSTACK_DIR" "$DSH_GSTACK" "$DSH_RENDER"
+  fi
   link_dsh_skill_dirs "$DSH_RENDER" "$DSH_SKILLS"
   # Drop global links whose skill no longer exists in the render tree. Same
   # ownership split as every other host: a symlink that resolves into gstack is

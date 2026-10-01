@@ -131,6 +131,11 @@ export function shouldEscalate({
     };
   }
 
+  // Enforce the per-decision cap. The module header promises three caps, and
+  // `recordEscalation` increments this counter while `escalationSummary` reports
+  // it, but nothing read it — so one decision could escalate on every call until
+  // only the per-stage cap happened to stop it. It is passed into `finish` so
+  // the session/stage precedence those checks already establish is preserved.
   if (confidence === null || confidence === undefined) {
     // No confidence reading is not the same as low confidence: escalate, because
     // an unreadable decision is exactly the ambiguous case.
@@ -138,7 +143,8 @@ export function shouldEscalate({
       { escalate: true, reason: `No Jev confidence was available for '${decisionName}'.` },
       stage,
       budget,
-      state
+      state,
+      decisionName
     );
   }
 
@@ -161,12 +167,13 @@ export function shouldEscalate({
     },
     stage,
     budget,
-    state
+    state,
+    decisionName
   );
 }
 
 /** Apply budget caps to a would-escalate decision. */
-function finish(outcome, stage, budget, state) {
+function finish(outcome, stage, budget, state, decisionName) {
   const sessionUsed = state.sessionCount || 0;
   if (sessionUsed >= budget.perSession) {
     return {
@@ -185,6 +192,19 @@ function finish(outcome, stage, budget, state) {
       reason:
         `Escalation budget exhausted for stage '${stage}' (${stageUsed}/${budget.perStage}).`,
       budgetExhausted: 'stage',
+    };
+  }
+
+  // The third documented cap. Checked last so the session and stage caps keep
+  // the precedence their tests pin; this one binds only when they do not.
+  const decisionUsed = Number(state.perDecision?.[decisionName] || 0);
+  if (decisionName && decisionUsed >= budget.perDecision) {
+    return {
+      escalate: false,
+      reason:
+        `Escalation budget exhausted for decision '${decisionName}' ` +
+        `(${decisionUsed}/${budget.perDecision}).`,
+      budgetExhausted: 'decision',
     };
   }
 
@@ -269,6 +289,9 @@ export function escalationSummary(state, budget = DEFAULT_BUDGET) {
 export function escalationModelEntries(discovered = []) {
   const fromDiscovery = discovered.map((model) => ({
     id: model.id,
+    // Keep the provider: the routes below filter on it. Dropping it here made
+    // every `models` array silently empty.
+    provider: model.provider,
     name: model.name || model.id,
     source: 'dsh-live-model-list',
   }));

@@ -190,8 +190,22 @@ export function checkBoundary(exec, opts = {}) {
   // does for a payload without `file_path`.
   if (typeof rawTarget !== 'string' || rawTarget === '') return null;
 
-  const cwd = opts.cwd ?? process.cwd();
-  const absolute = isAbsolute(rawTarget) ? rawTarget : join(cwd, rawTarget);
+  // Resolve a relative target the way the harness resolves it when it WRITES:
+  // against the SESSION's workspace cwd (dsh-tool-fs uses
+  // `exec.agent?.session.header.cwd`), never the host process cwd — on dsh that
+  // is the harness home (~/.dsh), not the project. Disagreeing bases let a
+  // relative path be checked inside the boundary and written outside it.
+  const sessionCwdRaw = opts.cwd ?? exec?.agent?.session?.header?.cwd;
+  const sessionCwd = typeof sessionCwdRaw === 'string' && sessionCwdRaw !== '' ? sessionCwdRaw : null;
+  if (!isAbsolute(rawTarget) && !sessionCwd) {
+    // A relative target with no knowable base cannot be evaluated. Freeze is
+    // deny-tier, so fail closed rather than guess a directory.
+    return {
+      reason:
+        'Blocked by the gstack-dsh freeze boundary: a relative path was given but the session working directory could not be determined, so it cannot be checked. Retry with an absolute path, or run /gstack-unfreeze.',
+    };
+  }
+  const absolute = isAbsolute(rawTarget) ? rawTarget : join(sessionCwd, rawTarget);
   const target = resolvePhysical(normalizePath(absolute));
   const dir = resolvePhysical(normalizePath(boundary.dir));
 

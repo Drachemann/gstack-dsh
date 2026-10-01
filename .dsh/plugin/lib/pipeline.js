@@ -93,9 +93,6 @@ export const STAGES = [
 /** Fast lookup by stage id. */
 export const STAGE_BY_ID = new Map(STAGES.map((stage) => [stage.id, stage]));
 
-/** Terminal stage id. */
-export const FINAL_STAGE_ID = STAGES[STAGES.length - 1].id;
-
 /** Confidence threshold for a gate to count as decided rather than unsure. */
 export const DEFAULT_GATE_THRESHOLD = 0.7;
 
@@ -355,8 +352,14 @@ export async function scoreContextRelevance({ jev }, state, fragments, options =
   // to avoid.
   const withScores = scored.filter((f) => typeof f.score === 'number');
   const ranked = withScores.sort((a, b) => b.score - a.score);
-  const keep = ranked.filter((f) => f.score >= keepThreshold).slice(0, maxKeep);
-  const collapse = scored.filter((f) => !keep.includes(f));
+  const answered = ranked.filter((f) => f.score >= keepThreshold).slice(0, maxKeep);
+  const unanswered = scored.filter((f) => typeof f.score !== 'number');
+  const keep = [...answered, ...unanswered];
+  const kept = new Set(keep);
+  // Only fragments Jev actually ranked, and ranked below the threshold, are
+  // collapsed. An unanswered fragment is never collapsed — that is the whole
+  // point of the rule above.
+  const collapse = scored.filter((f) => !kept.has(f));
 
   return {
     keep,
